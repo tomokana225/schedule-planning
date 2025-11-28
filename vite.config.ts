@@ -11,9 +11,8 @@ export default defineConfig(({ mode }) => {
     define: {
       // Polyfill global for libraries that expect it
       global: 'window',
-      // Polyfill process object to prevent "ReferenceError: process is not defined"
-      'process.env': {},
-      // Inject the API key specifically
+      // Inject the API key specifically. 
+      // We do not define 'process.env': {} here to avoid overwriting the window.process polyfill in index.html
       'process.env.API_KEY': JSON.stringify(env.API_KEY || ''),
     },
   };
