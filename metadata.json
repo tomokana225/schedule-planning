@@ -1,0 +1,5 @@
+{
+  "name": "OptiPlan AI",
+  "description": "An intelligent schedule management app that visualizes your calendar and uses AI to optimize your day, find free slots, and suggest the best plans for your tasks.",
+  "requestFramePermissions": []
+}
