@@ -1,7 +1,20 @@
 import { GoogleGenAI, FunctionDeclaration, Type, Tool } from "@google/genai";
 import { CalendarEvent } from "../types";
 
-const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+// Lazy initialization to prevent top-level crashes
+let ai: GoogleGenAI | null = null;
+
+const getAiClient = () => {
+  if (!ai) {
+    const apiKey = process.env.API_KEY;
+    if (!apiKey) {
+      console.error("API Key is missing");
+      throw new Error("API Key is not configured");
+    }
+    ai = new GoogleGenAI({ apiKey });
+  }
+  return ai;
+};
 
 // Define the tool for the AI to propose schedule changes
 const addEventTool: FunctionDeclaration = {
@@ -42,6 +55,7 @@ export const generateScheduleAdvice = async (
   currentEvents: CalendarEvent[],
   currentDate: Date
 ) => {
+  const client = getAiClient();
   
   // Create a simplified context of the current schedule for the AI
   const scheduleContext = currentEvents.map(e => ({
@@ -68,7 +82,7 @@ export const generateScheduleAdvice = async (
     When suggesting a time, explain WHY you chose that slot before calling the tool.
   `;
 
-  const chat = ai.chats.create({
+  const chat = client.chats.create({
     model: 'gemini-2.5-flash',
     config: {
       systemInstruction,
