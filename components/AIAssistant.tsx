@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { Send, Sparkles, X, Bot, User, CalendarPlus } from 'lucide-react';
-import { generateScheduleAdvice } from '../services/geminiService';
+import { sendMessageToAI } from '../services/geminiService';
 import { CalendarEvent, ChatMessage } from '../types';
 import { generateId } from '../utils';
 
@@ -52,12 +52,12 @@ export const AIAssistant: React.FC<AIAssistantProps> = ({
     setIsLoading(true);
 
     try {
-      const chatSession = await generateScheduleAdvice(input, events, currentDate);
+      // Send entire history context to the server-side API
+      const historyContext = messages.map(m => ({ role: m.role, text: m.text }));
       
-      // Send message to Gemini
-      const response = await chatSession.sendMessage({ message: userMsg.text });
+      const response = await sendMessageToAI(userMsg.text, historyContext, events, currentDate);
       
-      // Handle Function Calls (Tools)
+      // Handle Function Calls (Tools) returned from server
       const functionCalls = response.functionCalls;
       let toolResponseText = "";
 
@@ -73,14 +73,11 @@ export const AIAssistant: React.FC<AIAssistantProps> = ({
               end: new Date(args.endIso),
               description: args.description || 'AI Suggested',
               type: (args.type as any) || 'ai-suggested',
-              color: 'bg-amber-100 text-amber-700 border-amber-200', // Default AI color
+              color: 'bg-amber-100 text-amber-700 border-amber-200', 
             };
 
             onAddEvent(newEvent);
             toolResponseText = `\n\n✨ 予定「${newEvent.title}」を ${new Date(newEvent.start).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})} に追加しました。`;
-            
-            // Note: In a real persistent chat loop, we would send the tool response back to the model.
-            // For this UI-focused demo, we just acknowledge the action in the UI.
           }
         }
       }
@@ -102,7 +99,7 @@ export const AIAssistant: React.FC<AIAssistantProps> = ({
         {
           id: generateId(),
           role: 'model',
-          text: 'すみません、エラーが発生しました。もう一度お試しください。',
+          text: 'すみません、エラーが発生しました。接続を確認してください。',
         },
       ]);
     } finally {
@@ -173,7 +170,7 @@ export const AIAssistant: React.FC<AIAssistantProps> = ({
             value={input}
             onChange={(e) => setInput(e.target.value)}
             onKeyDown={handleKeyDown}
-            placeholder="「明日の午後に会議を入れたい」「来週の空き時間は？」"
+            placeholder="「明日の午後に会議を入れたい」"
             className="w-full pl-4 pr-12 py-3 bg-gray-100 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500 resize-none text-sm"
             rows={2}
           />
@@ -188,4 +185,4 @@ export const AIAssistant: React.FC<AIAssistantProps> = ({
       </div>
     </div>
   );
-};
+}

@@ -1,7 +1,12 @@
 {
   "name": "optiplan-ai",
   "compatibility_date": "2024-11-28",
+  "main": "src/worker.ts",
   "assets": {
-    "directory": "./dist"
+    "directory": "./dist",
+    "binding": "ASSETS"
+  },
+  "observability": {
+    "enabled": true
   }
 }

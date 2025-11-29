@@ -1,10 +1,10 @@
 import { CalendarEvent } from '../types';
 import { generateId } from '../utils';
 
-// NOTE: In a production application, these values should be configured in your Google Cloud Console
-// and provided here. For this demo, if CLIENT_ID is empty, we will simulate the sync behavior.
-const CLIENT_ID = ''; 
-const API_KEY = ''; 
+// Configuration will be fetched from the server
+let CLIENT_ID = '';
+let API_KEY = '';
+
 const DISCOVERY_DOC = 'https://www.googleapis.com/discovery/v1/apis/calendar/v3/rest';
 const SCOPES = 'https://www.googleapis.com/auth/calendar.events.readonly';
 
@@ -12,10 +12,27 @@ let tokenClient: any;
 let gapiInited = false;
 let gisInited = false;
 
-export const initializeGoogleCalendar = (
+// Fetch config from server
+const fetchConfig = async () => {
+  if (CLIENT_ID) return; // Already fetched
+  try {
+    const res = await fetch('/api/config');
+    if (res.ok) {
+      const config = await res.json();
+      CLIENT_ID = config.googleClientId;
+      API_KEY = config.googleApiKey;
+    }
+  } catch (e) {
+    console.warn("Failed to fetch Google Config", e);
+  }
+};
+
+export const initializeGoogleCalendar = async (
   onGapiLoaded: () => void,
   onGsiLoaded: () => void
 ) => {
+  await fetchConfig();
+
   // Check if scripts are already loaded. Only init if API_KEY is present for gapi.
   if (typeof (window as any).gapi !== 'undefined' && API_KEY) {
     (window as any).gapi.load('client', async () => {
@@ -49,10 +66,14 @@ export const initializeGoogleCalendar = (
 };
 
 export const handleAuthClick = async (): Promise<CalendarEvent[]> => {
+  // Ensure config is loaded if handleAuthClick is called directly
+  if (!CLIENT_ID) await fetchConfig();
+
   // FALLBACK: If no Client ID is provided OR tokenClient wasn't initialized
   if (!CLIENT_ID || !tokenClient) {
     console.warn("No Google Client ID configured or Token Client not initialized. Switching to Demo Mode.");
     return new Promise((resolve) => {
+      // Simulate network delay
       setTimeout(() => {
         resolve(getMockGoogleEvents());
       }, 1500);
@@ -68,6 +89,11 @@ export const handleAuthClick = async (): Promise<CalendarEvent[]> => {
       }
       
       try {
+        // If GAPI client is not initialized with API KEY, we need to load it here or just use fetch.
+        if (!(window as any).gapi.client.calendar) {
+            await (window as any).gapi.client.load(DISCOVERY_DOC);
+        }
+
         const response = await (window as any).gapi.client.calendar.events.list({
           'calendarId': 'primary',
           'timeMin': (new Date()).toISOString(),
@@ -91,10 +117,12 @@ export const handleAuthClick = async (): Promise<CalendarEvent[]> => {
 
         resolve(events);
       } catch (err) {
+        console.error("Error fetching events", err);
         reject(err);
       }
     };
 
+    // Skip prompt if we already have a token
     if ((window as any).gapi.client.getToken() === null) {
       tokenClient.requestAccessToken({ prompt: 'consent' });
     } else {
@@ -119,26 +147,5 @@ const getMockGoogleEvents = (): CalendarEvent[] => {
     source: 'google',
     description: '外部カレンダーから同期されました'
   });
-
-  events.push({
-    id: generateId(),
-    title: 'Google カレンダー: 歯科検診',
-    start: new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1, 15, 0),
-    end: new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1, 16, 0),
-    type: 'google-calendar',
-    color: 'bg-red-50 text-red-700 border-red-200',
-    source: 'google'
-  });
-
-   events.push({
-    id: generateId(),
-    title: 'Google カレンダー: フライト',
-    start: new Date(now.getFullYear(), now.getMonth(), now.getDate() + 3, 10, 0),
-    end: new Date(now.getFullYear(), now.getMonth(), now.getDate() + 3, 13, 0),
-    type: 'google-calendar',
-    color: 'bg-red-50 text-red-700 border-red-200',
-    source: 'google'
-  });
-
   return events;
 };
