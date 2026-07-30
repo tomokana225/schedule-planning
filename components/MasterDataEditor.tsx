@@ -73,6 +73,8 @@ export const MasterDataEditor: React.FC<Props> = ({
               {tab === 'subjects' && <th className="px-4 py-2 font-medium">色</th>}
               {tab === 'subjects' && <th className="px-4 py-2 font-medium">1日の最大回数（同クラス）</th>}
               {tab === 'classes' && <th className="px-4 py-2 font-medium">学年</th>}
+              {tab === 'classes' && <th className="px-4 py-2 font-medium">特別支援学級</th>}
+              {tab === 'classes' && <th className="px-4 py-2 font-medium">交流学級</th>}
               <th className="px-4 py-2 font-medium w-12"></th>
             </tr>
           </thead>
@@ -93,6 +95,28 @@ export const MasterDataEditor: React.FC<Props> = ({
                     placeholder="例: 1年"
                     onChange={e => setClasses(prev => prev.map(x => x.id === c.id ? { ...x, grade: e.target.value } : x))}
                   />
+                </td>
+                <td className="px-4 py-1.5 text-center">
+                  <input
+                    type="checkbox"
+                    checked={!!c.isSpecialNeeds}
+                    onChange={e => setClasses(prev => prev.map(x => x.id === c.id ? { ...x, isSpecialNeeds: e.target.checked, exchangeClassId: e.target.checked ? x.exchangeClassId : undefined } : x))}
+                    className="accent-indigo-600"
+                  />
+                </td>
+                <td className="px-4 py-1.5">
+                  {c.isSpecialNeeds && (
+                    <select
+                      value={c.exchangeClassId ?? ''}
+                      onChange={e => setClasses(prev => prev.map(x => x.id === c.id ? { ...x, exchangeClassId: e.target.value || undefined } : x))}
+                      className="w-full px-2 py-1 rounded border border-gray-200 bg-white text-xs"
+                    >
+                      <option value="">（未選択）</option>
+                      {classes.filter(x => x.id !== c.id && !x.isSpecialNeeds).map(x => (
+                        <option key={x.id} value={x.id}>{x.name}</option>
+                      ))}
+                    </select>
+                  )}
                 </td>
                 <td className="px-2 py-1.5 text-center">
                   <button onClick={() => setClasses(prev => prev.filter(x => x.id !== c.id))} className="text-gray-300 hover:text-red-500 p-1">

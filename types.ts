@@ -5,6 +5,8 @@ export interface SchoolClass {
   name: string;      // e.g. "1年A組"
   grade?: string;     // e.g. "1年"
   unavailable: SlotKey[]; // 授業を入れない曜日・時限（学級会・行事等）
+  isSpecialNeeds?: boolean;   // 特別支援学級（児童・生徒個人を1クラスとして扱う）
+  exchangeClassId?: string;   // 交流学級（合同授業の相手となる通常クラス）
 }
 
 export interface Teacher {
@@ -64,6 +66,10 @@ export interface TimetableSettings {
   days: string[];       // e.g. ['月','火','水','木','金','土']
   periodsPerDay: number;
   lunchAfterPeriod?: number; // 昼休みの位置（表示用の区切り線）
+  bandEnabled?: boolean;     // 帯（スライド）時間割を使用するか
+  bandTotalKoma?: number;    // 帯の総コマ数（週のコマ数より大きい値、例: 45）
+  examDays?: number;         // 試験時間割の日数
+  examPeriodsPerDay?: number; // 試験時間割の1日あたりの時限数
 }
 
 // 全体オプション: 駒入れ（自動作成）の動作条件のプリセット
@@ -94,6 +100,27 @@ export const DEFAULT_PRINT_SETTINGS: PrintSettings = {
   orientation: 'landscape',
   target: 'current',
 };
+
+// 会議の簡単設定: 特定の曜日・時限に指定した先生（・教室）を拘束し、
+// 駒入れ時にその時限へ授業を配置しないようにする。
+export interface Meeting {
+  id: string;
+  name: string;
+  day: number;
+  period: number;
+  teacherIds: string[];
+  roomId?: string;
+}
+
+// 試験時間割: 通常の駒入れとは別に、クラスごとに試験日・時限へ科目を割り当てる。
+export interface ExamSession {
+  id: string;
+  day: number;    // 試験日（0始まり、例: 0=1日目）
+  period: number;
+  classId: string;
+  subjectId: string;
+  proctorTeacherId?: string;
+}
 
 export interface ChatMessage {
   id: string;
@@ -131,6 +158,12 @@ export interface ProjectData {
   placements: Placement[];
   optionPresets: SchedulerOptions[];
   activeOptionId: string;
+  meetings: Meeting[];
+  examSessions: ExamSession[];
+  bandPlacements: Placement[]; // 帯時間割の駒配置（day は常に0、period が帯上の位置）
+  bandWeekOffset: number;      // 現在何週分スライドしたか
 }
 
-export type AppStep = 'setup' | 'master' | 'lessons' | 'constraints' | 'timetable' | 'summary';
+export type AppStep =
+  | 'setup' | 'master' | 'lessons' | 'constraints' | 'timetable' | 'summary'
+  | 'band' | 'exam' | 'meetings';

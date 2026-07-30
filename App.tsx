@@ -1,7 +1,7 @@
 import React, { useRef, useState } from 'react';
 import {
   CalendarDays, Settings2, Users, ListChecks, Ban, Grid3x3, Sparkles, BarChart3,
-  Download, Upload, Printer, FileSpreadsheet, FileCode2, GitMerge,
+  Download, Upload, Printer, FileSpreadsheet, FileCode2, GitMerge, Layers, FileQuestion, Users2,
 } from 'lucide-react';
 import { SetupWizard } from './components/SetupWizard';
 import { MasterDataEditor } from './components/MasterDataEditor';
@@ -12,9 +12,13 @@ import { AIAssistant } from './components/AIAssistant';
 import { PrintSettingsDialog } from './components/PrintSettingsDialog';
 import { MergeDataDialog } from './components/MergeDataDialog';
 import { SummaryReport } from './components/SummaryReport';
+import { BandTimetableTool } from './components/BandTimetableTool';
+import { ExamTimetableEditor } from './components/ExamTimetableEditor';
+import { MeetingEditor } from './components/MeetingEditor';
 import {
   AppStep, SchoolClass, Teacher, Subject, Room, Lesson, Placement, TimetableSettings,
   ProjectData, SchedulerOptions, DEFAULT_SCHEDULER_OPTIONS, PrintSettings, DEFAULT_PRINT_SETTINGS,
+  Meeting, ExamSession,
 } from './types';
 import { runScheduler } from './services/scheduler';
 import { exportCsv, exportHtml, saveProjectJson, loadProjectJson, mergeProjectData } from './services/exportService';
@@ -27,6 +31,9 @@ const STEPS: { key: AppStep; label: string; icon: React.ReactNode }[] = [
   { key: 'constraints', label: '個別条件', icon: <Ban size={20} /> },
   { key: 'timetable', label: '時間割作成', icon: <Grid3x3 size={20} /> },
   { key: 'summary', label: '集計', icon: <BarChart3 size={20} /> },
+  { key: 'meetings', label: '会議設定', icon: <Users2 size={20} /> },
+  { key: 'exam', label: '試験時間割', icon: <FileQuestion size={20} /> },
+  { key: 'band', label: '帯時間割', icon: <Layers size={20} /> },
 ];
 
 const App: React.FC = () => {
@@ -52,13 +59,20 @@ const App: React.FC = () => {
   const [optionPresets, setOptionPresets] = useState<SchedulerOptions[]>([DEFAULT_SCHEDULER_OPTIONS('標準')]);
   const [activeOptionId, setActiveOptionId] = useState<string>(optionPresets[0].id);
   const [printSettings, setPrintSettings] = useState<PrintSettings>(DEFAULT_PRINT_SETTINGS);
+  const [meetings, setMeetings] = useState<Meeting[]>([]);
+  const [examSessions, setExamSessions] = useState<ExamSession[]>([]);
+  const [bandPlacements, setBandPlacements] = useState<Placement[]>([]);
+  const [bandWeekOffset, setBandWeekOffset] = useState(0);
 
   const activeOption = optionPresets.find(o => o.id === activeOptionId) ?? optionPresets[0];
 
   const handleRunScheduler = () => {
     setIsRunning(true);
     setTimeout(() => {
-      const result = runScheduler({ settings, classes, teachers, subjects, rooms, lessons, options: activeOption }, placements);
+      const result = runScheduler(
+        { settings, classes, teachers, subjects, rooms, lessons, options: activeOption, meetings },
+        placements,
+      );
       setPlacements(result.placements);
       setIsRunning(false);
     }, 50);
@@ -66,6 +80,7 @@ const App: React.FC = () => {
 
   const currentData = (): ProjectData => ({
     settings, classes, teachers, subjects, rooms, lessons, placements, optionPresets, activeOptionId,
+    meetings, examSessions, bandPlacements, bandWeekOffset,
   });
 
   const handleLoad = async (file: File) => {
@@ -81,6 +96,10 @@ const App: React.FC = () => {
       setOptionPresets(data.optionPresets);
       setActiveOptionId(data.activeOptionId ?? data.optionPresets[0].id);
     }
+    setMeetings(data.meetings ?? []);
+    setExamSessions(data.examSessions ?? []);
+    setBandPlacements(data.bandPlacements ?? []);
+    setBandWeekOffset(data.bandWeekOffset ?? 0);
   };
 
   const handleMerge = (incoming: ProjectData) => {
@@ -95,7 +114,7 @@ const App: React.FC = () => {
   return (
     <div className="flex h-screen bg-gray-100 text-gray-800 overflow-hidden font-sans">
       {/* Sidebar Navigation */}
-      <aside className="w-20 bg-white border-r border-gray-200 flex-col items-center py-6 space-y-6 z-20 shadow-sm hidden sm:flex no-print">
+      <aside className="w-20 bg-white border-r border-gray-200 flex-col items-center py-6 space-y-6 z-20 shadow-sm hidden sm:flex no-print overflow-y-auto">
         <div className="p-2 bg-indigo-600 rounded-xl text-white shadow-lg shadow-indigo-200">
           <CalendarDays size={28} />
         </div>
@@ -130,16 +149,16 @@ const App: React.FC = () => {
       <main className="flex-1 flex flex-col h-screen overflow-hidden relative">
         {/* Header */}
         <header className="h-16 bg-white border-b border-gray-200 flex items-center justify-between px-6 flex-shrink-0 no-print">
-          <div className="flex items-center space-x-4">
-            <h1 className="text-xl font-bold tracking-tight text-gray-900">
+          <div className="flex items-center space-x-4 overflow-hidden">
+            <h1 className="text-xl font-bold tracking-tight text-gray-900 whitespace-nowrap">
               {settings.schoolName || 'イデア学園'} の AI時間割
             </h1>
-            <div className="hidden md:flex items-center bg-gray-100 rounded-lg p-1 space-x-1">
+            <div className="hidden lg:flex items-center bg-gray-100 rounded-lg p-1 space-x-1 overflow-x-auto">
               {STEPS.map(s => (
                 <button
                   key={s.key}
                   onClick={() => setStep(s.key)}
-                  className={`px-3 py-1 text-xs font-semibold rounded-md transition ${
+                  className={`px-2.5 py-1 text-xs font-semibold rounded-md transition whitespace-nowrap ${
                     step === s.key ? 'bg-white shadow-sm text-indigo-600' : 'text-gray-500 hover:text-gray-700'
                   }`}
                 >
@@ -149,7 +168,7 @@ const App: React.FC = () => {
             </div>
           </div>
 
-          <div className="flex items-center space-x-1">
+          <div className="flex items-center space-x-1 flex-shrink-0">
             <input
               ref={fileInputRef}
               type="file"
@@ -230,9 +249,28 @@ const App: React.FC = () => {
               settings={settings} classes={classes} teachers={teachers} subjects={subjects} rooms={rooms}
               lessons={lessons} placements={placements} setPlacements={setPlacements}
               onRunScheduler={handleRunScheduler} isRunning={isRunning} activeOption={activeOption}
+              meetings={meetings}
             />
           )}
           {step === 'summary' && <SummaryReport data={currentData()} />}
+          {step === 'meetings' && (
+            <MeetingEditor meetings={meetings} setMeetings={setMeetings} teachers={teachers} rooms={rooms} settings={settings} />
+          )}
+          {step === 'exam' && (
+            <ExamTimetableEditor
+              settings={settings} setSettings={setSettings} classes={classes} subjects={subjects}
+              examSessions={examSessions} setExamSessions={setExamSessions}
+            />
+          )}
+          {step === 'band' && (
+            <BandTimetableTool
+              settings={settings} setSettings={setSettings}
+              classes={classes} teachers={teachers} subjects={subjects} rooms={rooms} lessons={lessons}
+              bandPlacements={bandPlacements} setBandPlacements={setBandPlacements}
+              bandWeekOffset={bandWeekOffset} setBandWeekOffset={setBandWeekOffset}
+              activeOption={activeOption}
+            />
+          )}
         </div>
 
         <AIAssistant

@@ -1,7 +1,8 @@
 import React, { useMemo, useState } from 'react';
 import { Lock, Unlock, X, Wand2, RefreshCw } from 'lucide-react';
 import {
-  Lesson, Placement, SchoolClass, Teacher, Room, Subject, TimetableSettings, SchedulerOptions, SUBJECT_COLOR_CLASSES,
+  Lesson, Placement, SchoolClass, Teacher, Room, Subject, TimetableSettings, SchedulerOptions, Meeting,
+  SUBJECT_COLOR_CLASSES,
 } from '../types';
 import { generateId } from '../utils';
 import { isValidPlacement, SchedulerContext } from '../services/scheduler';
@@ -20,6 +21,7 @@ interface Props {
   onRunScheduler: () => void;
   isRunning: boolean;
   activeOption: SchedulerOptions;
+  meetings: Meeting[];
 }
 
 interface Menu {
@@ -38,7 +40,7 @@ export const computeUnplaced = (lessons: Lesson[], placements: Placement[]) => {
 };
 
 export const TimetableGrid: React.FC<Props> = ({
-  settings, classes, teachers, subjects, rooms, lessons, placements, setPlacements, onRunScheduler, isRunning, activeOption,
+  settings, classes, teachers, subjects, rooms, lessons, placements, setPlacements, onRunScheduler, isRunning, activeOption, meetings,
 }) => {
   const [viewBy, setViewBy] = useState<ViewBy>('class');
   const [entityId, setEntityId] = useState<string | null>(classes[0]?.id ?? null);
@@ -49,7 +51,17 @@ export const TimetableGrid: React.FC<Props> = ({
   const currentEntityId = entityId && entities.some(e => e.id === entityId) ? entityId : entities[0]?.id ?? null;
 
   const lessonById = useMemo(() => new Map(lessons.map(l => [l.id, l])), [lessons]);
-  const ctx: SchedulerContext = { settings, classes, teachers, subjects, rooms, lessons, options: activeOption };
+  const ctx: SchedulerContext = { settings, classes, teachers, subjects, rooms, lessons, options: activeOption, meetings };
+
+  const meetingAt = (day: number, period: number): Meeting | undefined => {
+    if (!currentEntityId) return undefined;
+    return meetings.find(m => {
+      if (m.day !== day || m.period !== period) return false;
+      if (viewBy === 'teacher') return m.teacherIds.includes(currentEntityId);
+      if (viewBy === 'room') return m.roomId === currentEntityId;
+      return false;
+    });
+  };
 
   const relevantPlacements = useMemo(() => {
     if (!currentEntityId) return [];
@@ -207,11 +219,12 @@ export const TimetableGrid: React.FC<Props> = ({
                         if (placement && !isStart) return null; // covered by rowSpan above
                         const lesson = placement ? lessonById.get(placement.lessonId) : null;
                         const span = lesson?.consecutive ?? 1;
+                        const meeting = !placement ? meetingAt(day, period) : undefined;
                         return (
                           <td key={day} className="p-0.5 align-top" rowSpan={placement ? span : 1}>
                             <div
-                              onDragOver={e => e.preventDefault()}
-                              onDrop={e => { e.stopPropagation(); handleDropOnCell(day, period); }}
+                              onDragOver={e => { if (!meeting) e.preventDefault(); }}
+                              onDrop={e => { e.stopPropagation(); if (!meeting) handleDropOnCell(day, period); }}
                               onClick={e => e.stopPropagation()}
                               onContextMenu={e => {
                                 if (!placement) return;
@@ -220,11 +233,14 @@ export const TimetableGrid: React.FC<Props> = ({
                               }}
                               draggable={!!placement && !placement.confirmed}
                               onDragStart={() => placement && setDragPayload({ kind: 'placement', id: placement.id })}
+                              title={meeting ? `会議: ${meeting.name}` : undefined}
                               className={`w-24 rounded-md border text-[11px] leading-tight flex flex-col items-center justify-center text-center px-1 select-none ${
                                 span === 2 ? 'h-[4.75rem]' : 'h-11'
                               } ${
                                 lesson
                                   ? `${SUBJECT_COLOR_CLASSES[label(lesson).color]} ${placement?.confirmed ? 'ring-2 ring-offset-1 ring-gray-500' : 'cursor-move'}`
+                                  : meeting
+                                  ? 'bg-slate-200 border-slate-300 text-slate-500'
                                   : 'bg-gray-50 border-dashed border-gray-200 text-gray-300'
                               }`}
                             >
@@ -235,6 +251,11 @@ export const TimetableGrid: React.FC<Props> = ({
                                     {label(lesson).subjectName}
                                   </div>
                                   <div className="opacity-80">{label(lesson).sub}</div>
+                                </>
+                              ) : meeting ? (
+                                <>
+                                  <Lock size={10} />
+                                  <div className="font-semibold truncate w-full">{meeting.name}</div>
                                 </>
                               ) : (
                                 <span>&nbsp;</span>
