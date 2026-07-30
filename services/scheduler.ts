@@ -154,9 +154,14 @@ const attempt = (ctx: SchedulerContext, keepConfirmed: Placement[]): RunResult =
     }
   }
 
+  // 指定（選択）授業を先入れ: priority が付いた授業を、通常の難易度順より先に配置する
   const orderedLessons = shuffle(lessons)
     .slice()
-    .sort((a, b) => difficultyScore(b, teachers) - difficultyScore(a, teachers));
+    .sort((a, b) => {
+      const priorityDiff = (b.priority ? 1 : 0) - (a.priority ? 1 : 0);
+      if (priorityDiff !== 0) return priorityDiff;
+      return difficultyScore(b, teachers) - difficultyScore(a, teachers);
+    });
 
   for (const lesson of orderedLessons) {
     const alreadyConfirmed = placements.filter(p => p.lessonId === lesson.id).length;

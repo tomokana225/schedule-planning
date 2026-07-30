@@ -1,11 +1,12 @@
-import React, { useMemo, useState } from 'react';
-import { Lock, Unlock, X, Wand2, RefreshCw } from 'lucide-react';
+import React, { useEffect, useMemo, useState } from 'react';
+import { Lock, Unlock, X, Wand2, RefreshCw, Undo2, Redo2, Lightbulb, ArrowRightLeft, MoveRight } from 'lucide-react';
 import {
   Lesson, Placement, SchoolClass, Teacher, Room, Subject, TimetableSettings, SchedulerOptions, Meeting,
   SUBJECT_COLOR_CLASSES,
 } from '../types';
 import { generateId } from '../utils';
 import { isValidPlacement, SchedulerContext } from '../services/scheduler';
+import { suggestMovesForPlacement, suggestSlotsForLesson, slotLabel, Suggestion } from '../services/suggestionService';
 
 type ViewBy = 'class' | 'teacher' | 'room';
 
@@ -22,12 +23,24 @@ interface Props {
   isRunning: boolean;
   activeOption: SchedulerOptions;
   meetings: Meeting[];
+  onUndo: () => void;
+  onRedo: () => void;
+  canUndo: boolean;
+  canRedo: boolean;
+  initialFocus?: { viewBy: ViewBy; entityId: string } | null;
+  onFocusHandled?: () => void;
 }
 
 interface Menu {
   x: number;
   y: number;
   placementId: string;
+}
+
+interface SuggestPanel {
+  x: number;
+  y: number;
+  source: { kind: 'placement'; placementId: string } | { kind: 'lesson'; lessonId: string };
 }
 
 export const computeUnplaced = (lessons: Lesson[], placements: Placement[]) => {
@@ -41,11 +54,38 @@ export const computeUnplaced = (lessons: Lesson[], placements: Placement[]) => {
 
 export const TimetableGrid: React.FC<Props> = ({
   settings, classes, teachers, subjects, rooms, lessons, placements, setPlacements, onRunScheduler, isRunning, activeOption, meetings,
+  onUndo, onRedo, canUndo, canRedo, initialFocus, onFocusHandled,
 }) => {
   const [viewBy, setViewBy] = useState<ViewBy>('class');
   const [entityId, setEntityId] = useState<string | null>(classes[0]?.id ?? null);
   const [menu, setMenu] = useState<Menu | null>(null);
+  const [suggestPanel, setSuggestPanel] = useState<SuggestPanel | null>(null);
   const [dragPayload, setDragPayload] = useState<{ kind: 'placement' | 'new'; id: string } | null>(null);
+
+  // タイル表示からのジャンプ: 指定されたクラス/先生/教室の詳細画面を直接開く
+  useEffect(() => {
+    if (!initialFocus) return;
+    setViewBy(initialFocus.viewBy);
+    setEntityId(initialFocus.entityId);
+    onFocusHandled?.();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [initialFocus]);
+
+  // 一手戻し／一手戻しUndo: Ctrl/Cmd+Z を戻す、Ctrl/Cmd+Shift+Z または Ctrl/Cmd+Y をやり直しに割り当てる
+  useEffect(() => {
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (!(e.ctrlKey || e.metaKey)) return;
+      if (e.key.toLowerCase() === 'z') {
+        e.preventDefault();
+        if (e.shiftKey) onRedo(); else onUndo();
+      } else if (e.key.toLowerCase() === 'y') {
+        e.preventDefault();
+        onRedo();
+      }
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [onUndo, onRedo]);
 
   const entities = viewBy === 'class' ? classes : viewBy === 'teacher' ? teachers : rooms;
   const currentEntityId = entityId && entities.some(e => e.id === entityId) ? entityId : entities[0]?.id ?? null;
@@ -108,6 +148,48 @@ export const TimetableGrid: React.FC<Props> = ({
     return isValidPlacement(ctx, placements, lesson, day, period, excludeIds);
   };
 
+  const labelForPlacement = (p: Placement): string => {
+    const l = lessonById.get(p.lessonId);
+    if (!l) return '?';
+    const info = label(l);
+    return `${info.subjectName}（${info.sub}）`;
+  };
+
+  const suggestions: Suggestion[] = useMemo(() => {
+    if (!suggestPanel) return [];
+    if (suggestPanel.source.kind === 'placement') {
+      return suggestMovesForPlacement(ctx, placements, suggestPanel.source.placementId, labelForPlacement);
+    }
+    const lesson = lessonById.get(suggestPanel.source.lessonId);
+    if (!lesson) return [];
+    return suggestSlotsForLesson(ctx, placements, lesson);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [suggestPanel, placements, lessons]);
+
+  const applySuggestion = (s: Suggestion) => {
+    if (!suggestPanel) return;
+    if (suggestPanel.source.kind === 'lesson') {
+      const lesson = lessonById.get(suggestPanel.source.lessonId);
+      if (!lesson) return;
+      setPlacements(prev => [...prev, { id: generateId(), lessonId: lesson.id, day: s.day, period: s.period, confirmed: false }]);
+    } else {
+      const sourceId = suggestPanel.source.placementId;
+      if (s.kind === 'move') {
+        setPlacements(prev => prev.map(p => p.id === sourceId ? { ...p, day: s.day, period: s.period } : p));
+      } else {
+        const source = placements.find(p => p.id === sourceId);
+        const target = placements.find(p => p.id === s.targetPlacementId);
+        if (!source || !target) return;
+        setPlacements(prev => prev.map(p => {
+          if (p.id === source.id) return { ...p, day: target.day, period: target.period };
+          if (p.id === target.id) return { ...p, day: source.day, period: source.period };
+          return p;
+        }));
+      }
+    }
+    setSuggestPanel(null);
+  };
+
   const handleDropOnCell = (day: number, period: number) => {
     if (!dragPayload) return;
     const targetOccupant = cellAt(day, period);
@@ -161,7 +243,7 @@ export const TimetableGrid: React.FC<Props> = ({
   };
 
   return (
-    <div className="flex flex-col h-full gap-3" onClick={() => setMenu(null)}>
+    <div className="flex flex-col h-full gap-3" onClick={() => { setMenu(null); setSuggestPanel(null); }}>
       <div className="flex items-center justify-between flex-wrap gap-2 no-print">
         <div className="flex items-center gap-2">
           <div className="flex bg-gray-100 rounded-lg p-1">
@@ -183,14 +265,34 @@ export const TimetableGrid: React.FC<Props> = ({
             {entities.map(e => <option key={e.id} value={e.id}>{e.name}</option>)}
           </select>
         </div>
-        <button
-          onClick={onRunScheduler}
-          disabled={isRunning}
-          className="flex items-center gap-1.5 bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white px-4 py-2 rounded-lg text-sm font-medium shadow-md shadow-indigo-200"
-        >
-          {isRunning ? <RefreshCw size={16} className="animate-spin" /> : <Wand2 size={16} />}
-          <span>{isRunning ? '駒入れ中...' : 'AIで自動駒入れ'}</span>
-        </button>
+        <div className="flex items-center gap-2">
+          <div className="flex bg-gray-100 rounded-lg p-1">
+            <button
+              onClick={onUndo}
+              disabled={!canUndo}
+              title="一手戻し (Ctrl+Z)"
+              className="p-1.5 rounded-md text-gray-500 hover:text-indigo-600 disabled:opacity-30 disabled:hover:text-gray-500"
+            >
+              <Undo2 size={16} />
+            </button>
+            <button
+              onClick={onRedo}
+              disabled={!canRedo}
+              title="一手戻しUndo・やり直し (Ctrl+Shift+Z)"
+              className="p-1.5 rounded-md text-gray-500 hover:text-indigo-600 disabled:opacity-30 disabled:hover:text-gray-500"
+            >
+              <Redo2 size={16} />
+            </button>
+          </div>
+          <button
+            onClick={onRunScheduler}
+            disabled={isRunning}
+            className="flex items-center gap-1.5 bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white px-4 py-2 rounded-lg text-sm font-medium shadow-md shadow-indigo-200"
+          >
+            {isRunning ? <RefreshCw size={16} className="animate-spin" /> : <Wand2 size={16} />}
+            <span>{isRunning ? '駒入れ中...' : 'AIで自動駒入れ'}</span>
+          </button>
+        </div>
       </div>
 
       <div className="flex-1 flex gap-4 overflow-hidden">
@@ -282,11 +384,22 @@ export const TimetableGrid: React.FC<Props> = ({
                   key={`${lesson.id}-${i}`}
                   draggable
                   onDragStart={() => setDragPayload({ kind: 'new', id: lesson.id })}
-                  className={`px-2 py-1.5 rounded-md border text-xs cursor-move ${SUBJECT_COLOR_CLASSES[info.color]}`}
+                  className={`relative px-2 py-1.5 rounded-md border text-xs cursor-move ${SUBJECT_COLOR_CLASSES[info.color]}`}
                 >
-                  <div className="font-semibold">{info.subjectName}</div>
-                  <div className="opacity-80 text-[11px]">
-                    {lesson.classIds.map(id => classes.find(c => c.id === id)?.name).join('・')} / {lesson.teacherIds.map(id => teachers.find(t => t.id === id)?.name).join('・')}
+                  <div className="flex items-start justify-between gap-1">
+                    <div>
+                      <div className="font-semibold">{info.subjectName}</div>
+                      <div className="opacity-80 text-[11px]">
+                        {lesson.classIds.map(id => classes.find(c => c.id === id)?.name).join('・')} / {lesson.teacherIds.map(id => teachers.find(t => t.id === id)?.name).join('・')}
+                      </div>
+                    </div>
+                    <button
+                      onClick={e => { e.stopPropagation(); setSuggestPanel({ x: e.clientX, y: e.clientY, source: { kind: 'lesson', lessonId: lesson.id } }); }}
+                      title="AI提案（置ける空きコマを探す）"
+                      className="flex-shrink-0 p-1 rounded hover:bg-white/60 text-current"
+                    >
+                      <Lightbulb size={13} />
+                    </button>
                   </div>
                 </div>
               ));
@@ -306,10 +419,49 @@ export const TimetableGrid: React.FC<Props> = ({
             {placements.find(p => p.id === menu.placementId)?.confirmed ? <Unlock size={14} /> : <Lock size={14} />}
             <span>{placements.find(p => p.id === menu.placementId)?.confirmed ? '確定を解除' : '確定授業にする'}</span>
           </button>
+          {!placements.find(p => p.id === menu.placementId)?.confirmed && (
+            <button
+              onClick={() => { setSuggestPanel({ x: menu.x, y: menu.y, source: { kind: 'placement', placementId: menu.placementId } }); setMenu(null); }}
+              className="w-full flex items-center gap-2 px-3 py-1.5 hover:bg-gray-50 text-left text-indigo-600"
+            >
+              <Lightbulb size={14} />
+              <span>AI提案を見る（振替・移動）</span>
+            </button>
+          )}
           <button onClick={() => removePlacement(menu.placementId)} className="w-full flex items-center gap-2 px-3 py-1.5 hover:bg-gray-50 text-left text-red-600">
             <X size={14} />
             <span>駒をはずす</span>
           </button>
+        </div>
+      )}
+
+      {suggestPanel && (
+        <div
+          className="fixed z-50 bg-white border border-gray-200 rounded-lg shadow-lg py-1 text-sm w-64 max-h-80 overflow-auto"
+          style={{ top: suggestPanel.y, left: Math.min(suggestPanel.x, window.innerWidth - 270) }}
+          onClick={e => e.stopPropagation()}
+        >
+          <div className="px-3 py-1.5 text-xs font-semibold text-gray-500 border-b border-gray-100 flex items-center gap-1.5">
+            <Lightbulb size={13} className="text-amber-500" />
+            <span>AI提案</span>
+          </div>
+          {suggestions.length === 0 && (
+            <div className="px-3 py-3 text-xs text-gray-400">提案できる空きコマが見つかりませんでした。</div>
+          )}
+          {suggestions.map((s, i) => (
+            <button
+              key={i}
+              onClick={() => applySuggestion(s)}
+              className="w-full flex items-center gap-2 px-3 py-1.5 hover:bg-indigo-50 text-left text-xs"
+            >
+              {s.kind === 'move' ? <MoveRight size={13} className="text-gray-400 flex-shrink-0" /> : <ArrowRightLeft size={13} className="text-gray-400 flex-shrink-0" />}
+              {s.kind === 'move' ? (
+                <span>{slotLabel(settings.days, s.day, s.period)} へ移動</span>
+              ) : (
+                <span>{slotLabel(settings.days, s.day, s.period)} の「{s.label}」と入れ替え</span>
+              )}
+            </button>
+          ))}
         </div>
       )}
     </div>

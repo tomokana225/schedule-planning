@@ -45,6 +45,7 @@ export interface Lesson {
   consecutive: 1 | 2;    // 連続授業なら2
   confirmedSlots?: SlotKey[]; // 固定（確定）されたスロット（存在すれば優先配置）
   label?: string;        // 表示用の短い名前（例: 選択A）
+  priority?: boolean;    // 指定授業を先入れ: 駒入れの際に他の授業より先に配置する
 }
 
 export interface SlotKey {
@@ -166,4 +167,4 @@ export interface ProjectData {
 
 export type AppStep =
   | 'setup' | 'master' | 'lessons' | 'constraints' | 'timetable' | 'summary'
-  | 'band' | 'exam' | 'meetings';
+  | 'band' | 'exam' | 'meetings' | 'tiles';

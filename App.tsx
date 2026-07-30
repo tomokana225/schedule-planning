@@ -1,7 +1,7 @@
-import React, { useRef, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import {
   CalendarDays, Settings2, Users, ListChecks, Ban, Grid3x3, Sparkles, BarChart3,
-  Download, Upload, Printer, FileSpreadsheet, FileCode2, GitMerge, Layers, FileQuestion, Users2,
+  Download, Upload, Printer, FileSpreadsheet, FileCode2, GitMerge, Layers, FileQuestion, Users2, History, LayoutGrid,
 } from 'lucide-react';
 import { SetupWizard } from './components/SetupWizard';
 import { MasterDataEditor } from './components/MasterDataEditor';
@@ -15,6 +15,8 @@ import { SummaryReport } from './components/SummaryReport';
 import { BandTimetableTool } from './components/BandTimetableTool';
 import { ExamTimetableEditor } from './components/ExamTimetableEditor';
 import { MeetingEditor } from './components/MeetingEditor';
+import { BackupPanel } from './components/BackupPanel';
+import { TileView } from './components/TileView';
 import {
   AppStep, SchoolClass, Teacher, Subject, Room, Lesson, Placement, TimetableSettings,
   ProjectData, SchedulerOptions, DEFAULT_SCHEDULER_OPTIONS, PrintSettings, DEFAULT_PRINT_SETTINGS,
@@ -22,7 +24,9 @@ import {
 } from './types';
 import { runScheduler } from './services/scheduler';
 import { exportCsv, exportHtml, saveProjectJson, loadProjectJson, mergeProjectData } from './services/exportService';
+import { saveBackup } from './services/backupService';
 import { DEFAULT_DAYS } from './utils';
+import { useUndoableState } from './hooks/useUndoableState';
 
 const STEPS: { key: AppStep; label: string; icon: React.ReactNode }[] = [
   { key: 'setup', label: '基本設定', icon: <Settings2 size={20} /> },
@@ -30,6 +34,7 @@ const STEPS: { key: AppStep; label: string; icon: React.ReactNode }[] = [
   { key: 'lessons', label: '授業設定', icon: <ListChecks size={20} /> },
   { key: 'constraints', label: '個別条件', icon: <Ban size={20} /> },
   { key: 'timetable', label: '時間割作成', icon: <Grid3x3 size={20} /> },
+  { key: 'tiles', label: 'タイル表示', icon: <LayoutGrid size={20} /> },
   { key: 'summary', label: '集計', icon: <BarChart3 size={20} /> },
   { key: 'meetings', label: '会議設定', icon: <Users2 size={20} /> },
   { key: 'exam', label: '試験時間割', icon: <FileQuestion size={20} /> },
@@ -41,7 +46,10 @@ const App: React.FC = () => {
   const [isAIOpen, setIsAIOpen] = useState(false);
   const [isPrintOpen, setIsPrintOpen] = useState(false);
   const [isMergeOpen, setIsMergeOpen] = useState(false);
+  const [isBackupOpen, setIsBackupOpen] = useState(false);
   const [isRunning, setIsRunning] = useState(false);
+  const [backupEnabled, setBackupEnabled] = useState(false);
+  const [backupIntervalMinutes, setBackupIntervalMinutes] = useState(10);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const [settings, setSettings] = useState<TimetableSettings>({
@@ -55,7 +63,10 @@ const App: React.FC = () => {
   const [subjects, setSubjects] = useState<Subject[]>([]);
   const [rooms, setRooms] = useState<Room[]>([]);
   const [lessons, setLessons] = useState<Lesson[]>([]);
-  const [placements, setPlacements] = useState<Placement[]>([]);
+  const {
+    value: placements, setValue: setPlacements, undo: undoPlacements, redo: redoPlacements,
+    canUndo, canRedo, reset: resetPlacements,
+  } = useUndoableState<Placement[]>([]);
   const [optionPresets, setOptionPresets] = useState<SchedulerOptions[]>([DEFAULT_SCHEDULER_OPTIONS('標準')]);
   const [activeOptionId, setActiveOptionId] = useState<string>(optionPresets[0].id);
   const [printSettings, setPrintSettings] = useState<PrintSettings>(DEFAULT_PRINT_SETTINGS);
@@ -63,6 +74,7 @@ const App: React.FC = () => {
   const [examSessions, setExamSessions] = useState<ExamSession[]>([]);
   const [bandPlacements, setBandPlacements] = useState<Placement[]>([]);
   const [bandWeekOffset, setBandWeekOffset] = useState(0);
+  const [jumpFocus, setJumpFocus] = useState<{ viewBy: 'class' | 'teacher' | 'room'; entityId: string } | null>(null);
 
   const activeOption = optionPresets.find(o => o.id === activeOptionId) ?? optionPresets[0];
 
@@ -83,15 +95,14 @@ const App: React.FC = () => {
     meetings, examSessions, bandPlacements, bandWeekOffset,
   });
 
-  const handleLoad = async (file: File) => {
-    const data = await loadProjectJson(file);
+  const applyProjectData = (data: ProjectData) => {
     setSettings(data.settings);
     setClasses(data.classes);
     setTeachers(data.teachers);
     setSubjects(data.subjects);
     setRooms(data.rooms);
     setLessons(data.lessons);
-    setPlacements(data.placements);
+    resetPlacements(data.placements);
     if (data.optionPresets?.length) {
       setOptionPresets(data.optionPresets);
       setActiveOptionId(data.activeOptionId ?? data.optionPresets[0].id);
@@ -102,6 +113,11 @@ const App: React.FC = () => {
     setBandWeekOffset(data.bandWeekOffset ?? 0);
   };
 
+  const handleLoad = async (file: File) => {
+    const data = await loadProjectJson(file);
+    applyProjectData(data);
+  };
+
   const handleMerge = (incoming: ProjectData) => {
     const merged = mergeProjectData(currentData(), incoming);
     setClasses(merged.classes);
@@ -110,6 +126,20 @@ const App: React.FC = () => {
     setRooms(merged.rooms);
     setLessons(merged.lessons);
   };
+
+  // 自動バックアップ機能: 有効時は指定した間隔でローカルストレージへ自動保存する。
+  // タイマー自体は間隔設定が変わるまで張り直さず、tick 時点の最新データを ref から読む。
+  const currentDataRef = useRef<ProjectData>();
+  currentDataRef.current = currentData();
+
+  useEffect(() => {
+    if (!backupEnabled) return;
+    const id = setInterval(() => {
+      if (currentDataRef.current) saveBackup(currentDataRef.current);
+    }, Math.max(1, backupIntervalMinutes) * 60 * 1000);
+    return () => clearInterval(id);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [backupEnabled, backupIntervalMinutes]);
 
   return (
     <div className="flex h-screen bg-gray-100 text-gray-800 overflow-hidden font-sans">
@@ -218,6 +248,13 @@ const App: React.FC = () => {
             >
               <Printer size={18} />
             </button>
+            <button
+              onClick={() => setIsBackupOpen(true)}
+              title="自動バックアップ"
+              className={`p-2 rounded-lg transition ${backupEnabled ? 'text-indigo-600 bg-indigo-50' : 'text-gray-500 hover:text-indigo-600 hover:bg-gray-100'}`}
+            >
+              <History size={18} />
+            </button>
           </div>
         </header>
 
@@ -250,6 +287,15 @@ const App: React.FC = () => {
               lessons={lessons} placements={placements} setPlacements={setPlacements}
               onRunScheduler={handleRunScheduler} isRunning={isRunning} activeOption={activeOption}
               meetings={meetings}
+              onUndo={undoPlacements} onRedo={redoPlacements} canUndo={canUndo} canRedo={canRedo}
+              initialFocus={jumpFocus} onFocusHandled={() => setJumpFocus(null)}
+            />
+          )}
+          {step === 'tiles' && (
+            <TileView
+              settings={settings} classes={classes} teachers={teachers} rooms={rooms} subjects={subjects}
+              lessons={lessons} placements={placements}
+              onOpenEntity={(viewBy, entityId) => { setJumpFocus({ viewBy, entityId }); setStep('timetable'); }}
             />
           )}
           {step === 'summary' && <SummaryReport data={currentData()} />}
@@ -293,6 +339,16 @@ const App: React.FC = () => {
         setPrintSettings={setPrintSettings}
       />
       <MergeDataDialog isOpen={isMergeOpen} onClose={() => setIsMergeOpen(false)} onMerge={handleMerge} />
+      <BackupPanel
+        isOpen={isBackupOpen}
+        onClose={() => setIsBackupOpen(false)}
+        currentData={currentData}
+        onRestore={applyProjectData}
+        enabled={backupEnabled}
+        setEnabled={setBackupEnabled}
+        intervalMinutes={backupIntervalMinutes}
+        setIntervalMinutes={setBackupIntervalMinutes}
+      />
     </div>
   );
 };

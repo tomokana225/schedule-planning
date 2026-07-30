@@ -1,5 +1,5 @@
 import React from 'react';
-import { Plus, Trash2, Heart } from 'lucide-react';
+import { Plus, Trash2, Heart, Star } from 'lucide-react';
 import { Lesson, SchoolClass, Teacher, Subject, Room, SUBJECT_COLOR_CLASSES } from '../types';
 import { generateId } from '../utils';
 import { MultiSelect } from './MultiSelect';
@@ -55,6 +55,7 @@ export const LessonEditor: React.FC<Props> = ({ lessons, setLessons, classes, te
     <div className="flex flex-col h-full">
       <p className="text-xs text-gray-500 mb-3">
         「基本授業」はクラス・先生・教室が1つずつの通常授業、「選択授業」は合同・展開・TTなど複数のクラスや先生が関わる授業です。
+        「先入れ」に星を付けると、入りにくい選択授業などを他の授業より先に駒入れできます。
       </p>
 
       {specialNeedsClasses.length > 0 && (
@@ -93,6 +94,7 @@ export const LessonEditor: React.FC<Props> = ({ lessons, setLessons, classes, te
               <th className="px-3 py-2 font-medium">教室</th>
               <th className="px-3 py-2 font-medium w-20">週コマ数</th>
               <th className="px-3 py-2 font-medium w-20">連続</th>
+              <th className="px-3 py-2 font-medium w-16 text-center">先入れ</th>
               <th className="px-3 py-2 font-medium w-10"></th>
             </tr>
           </thead>
@@ -150,6 +152,15 @@ export const LessonEditor: React.FC<Props> = ({ lessons, setLessons, classes, te
                     </select>
                   </td>
                   <td className="px-3 py-2 text-center">
+                    <button
+                      onClick={() => update(l.id, { priority: !l.priority })}
+                      title="指定授業を先入れ（駒入れ時に優先的に配置）"
+                      className={`p-1 rounded ${l.priority ? 'text-amber-500' : 'text-gray-300 hover:text-amber-400'}`}
+                    >
+                      <Star size={16} fill={l.priority ? 'currentColor' : 'none'} />
+                    </button>
+                  </td>
+                  <td className="px-3 py-2 text-center">
                     <button onClick={() => setLessons(prev => prev.filter(x => x.id !== l.id))} className="text-gray-300 hover:text-red-500 p-1">
                       <Trash2 size={16} />
                     </button>
@@ -158,7 +169,7 @@ export const LessonEditor: React.FC<Props> = ({ lessons, setLessons, classes, te
               );
             })}
             {lessons.length === 0 && (
-              <tr><td colSpan={8} className="px-3 py-6 text-center text-gray-400">授業が登録されていません。「追加」から登録してください。</td></tr>
+              <tr><td colSpan={9} className="px-3 py-6 text-center text-gray-400">授業が登録されていません。「追加」から登録してください。</td></tr>
             )}
           </tbody>
         </table>
