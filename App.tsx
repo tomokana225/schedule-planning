@@ -1,7 +1,7 @@
 import React, { useRef, useState } from 'react';
 import {
-  CalendarDays, Settings2, Users, ListChecks, Ban, Grid3x3, Sparkles,
-  Download, Upload, Printer, FileSpreadsheet,
+  CalendarDays, Settings2, Users, ListChecks, Ban, Grid3x3, Sparkles, BarChart3,
+  Download, Upload, Printer, FileSpreadsheet, FileCode2, GitMerge,
 } from 'lucide-react';
 import { SetupWizard } from './components/SetupWizard';
 import { MasterDataEditor } from './components/MasterDataEditor';
@@ -9,12 +9,15 @@ import { LessonEditor } from './components/LessonEditor';
 import { ConstraintsEditor } from './components/ConstraintsEditor';
 import { TimetableGrid } from './components/TimetableGrid';
 import { AIAssistant } from './components/AIAssistant';
+import { PrintSettingsDialog } from './components/PrintSettingsDialog';
+import { MergeDataDialog } from './components/MergeDataDialog';
+import { SummaryReport } from './components/SummaryReport';
 import {
   AppStep, SchoolClass, Teacher, Subject, Room, Lesson, Placement, TimetableSettings,
-  ProjectData,
+  ProjectData, SchedulerOptions, DEFAULT_SCHEDULER_OPTIONS, PrintSettings, DEFAULT_PRINT_SETTINGS,
 } from './types';
 import { runScheduler } from './services/scheduler';
-import { exportCsv, saveProjectJson, loadProjectJson } from './services/exportService';
+import { exportCsv, exportHtml, saveProjectJson, loadProjectJson, mergeProjectData } from './services/exportService';
 import { DEFAULT_DAYS } from './utils';
 
 const STEPS: { key: AppStep; label: string; icon: React.ReactNode }[] = [
@@ -23,11 +26,14 @@ const STEPS: { key: AppStep; label: string; icon: React.ReactNode }[] = [
   { key: 'lessons', label: '授業設定', icon: <ListChecks size={20} /> },
   { key: 'constraints', label: '個別条件', icon: <Ban size={20} /> },
   { key: 'timetable', label: '時間割作成', icon: <Grid3x3 size={20} /> },
+  { key: 'summary', label: '集計', icon: <BarChart3 size={20} /> },
 ];
 
 const App: React.FC = () => {
   const [step, setStep] = useState<AppStep>('setup');
   const [isAIOpen, setIsAIOpen] = useState(false);
+  const [isPrintOpen, setIsPrintOpen] = useState(false);
+  const [isMergeOpen, setIsMergeOpen] = useState(false);
   const [isRunning, setIsRunning] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -43,17 +49,24 @@ const App: React.FC = () => {
   const [rooms, setRooms] = useState<Room[]>([]);
   const [lessons, setLessons] = useState<Lesson[]>([]);
   const [placements, setPlacements] = useState<Placement[]>([]);
+  const [optionPresets, setOptionPresets] = useState<SchedulerOptions[]>([DEFAULT_SCHEDULER_OPTIONS('標準')]);
+  const [activeOptionId, setActiveOptionId] = useState<string>(optionPresets[0].id);
+  const [printSettings, setPrintSettings] = useState<PrintSettings>(DEFAULT_PRINT_SETTINGS);
+
+  const activeOption = optionPresets.find(o => o.id === activeOptionId) ?? optionPresets[0];
 
   const handleRunScheduler = () => {
     setIsRunning(true);
     setTimeout(() => {
-      const result = runScheduler({ settings, classes, teachers, subjects, lessons }, placements);
+      const result = runScheduler({ settings, classes, teachers, subjects, rooms, lessons, options: activeOption }, placements);
       setPlacements(result.placements);
       setIsRunning(false);
     }, 50);
   };
 
-  const currentData = (): ProjectData => ({ settings, classes, teachers, subjects, rooms, lessons, placements });
+  const currentData = (): ProjectData => ({
+    settings, classes, teachers, subjects, rooms, lessons, placements, optionPresets, activeOptionId,
+  });
 
   const handleLoad = async (file: File) => {
     const data = await loadProjectJson(file);
@@ -64,12 +77,25 @@ const App: React.FC = () => {
     setRooms(data.rooms);
     setLessons(data.lessons);
     setPlacements(data.placements);
+    if (data.optionPresets?.length) {
+      setOptionPresets(data.optionPresets);
+      setActiveOptionId(data.activeOptionId ?? data.optionPresets[0].id);
+    }
+  };
+
+  const handleMerge = (incoming: ProjectData) => {
+    const merged = mergeProjectData(currentData(), incoming);
+    setClasses(merged.classes);
+    setTeachers(merged.teachers);
+    setSubjects(merged.subjects);
+    setRooms(merged.rooms);
+    setLessons(merged.lessons);
   };
 
   return (
     <div className="flex h-screen bg-gray-100 text-gray-800 overflow-hidden font-sans">
       {/* Sidebar Navigation */}
-      <aside className="w-20 bg-white border-r border-gray-200 flex-col items-center py-6 space-y-6 z-20 shadow-sm hidden sm:flex">
+      <aside className="w-20 bg-white border-r border-gray-200 flex-col items-center py-6 space-y-6 z-20 shadow-sm hidden sm:flex no-print">
         <div className="p-2 bg-indigo-600 rounded-xl text-white shadow-lg shadow-indigo-200">
           <CalendarDays size={28} />
         </div>
@@ -103,7 +129,7 @@ const App: React.FC = () => {
       {/* Main Content */}
       <main className="flex-1 flex flex-col h-screen overflow-hidden relative">
         {/* Header */}
-        <header className="h-16 bg-white border-b border-gray-200 flex items-center justify-between px-6 flex-shrink-0">
+        <header className="h-16 bg-white border-b border-gray-200 flex items-center justify-between px-6 flex-shrink-0 no-print">
           <div className="flex items-center space-x-4">
             <h1 className="text-xl font-bold tracking-tight text-gray-900">
               {settings.schoolName || 'イデア学園'} の AI時間割
@@ -123,7 +149,7 @@ const App: React.FC = () => {
             </div>
           </div>
 
-          <div className="flex items-center space-x-2">
+          <div className="flex items-center space-x-1">
             <input
               ref={fileInputRef}
               type="file"
@@ -137,6 +163,13 @@ const App: React.FC = () => {
               className="p-2 text-gray-500 hover:text-indigo-600 hover:bg-gray-100 rounded-lg transition"
             >
               <Upload size={18} />
+            </button>
+            <button
+              onClick={() => setIsMergeOpen(true)}
+              title="データ結合（統合連結）"
+              className="p-2 text-gray-500 hover:text-indigo-600 hover:bg-gray-100 rounded-lg transition"
+            >
+              <GitMerge size={18} />
             </button>
             <button
               onClick={() => saveProjectJson(currentData())}
@@ -153,7 +186,14 @@ const App: React.FC = () => {
               <FileSpreadsheet size={18} />
             </button>
             <button
-              onClick={() => window.print()}
+              onClick={() => exportHtml(currentData())}
+              title="HTML出力（ビューワー用）"
+              className="p-2 text-gray-500 hover:text-indigo-600 hover:bg-gray-100 rounded-lg transition"
+            >
+              <FileCode2 size={18} />
+            </button>
+            <button
+              onClick={() => setIsPrintOpen(true)}
               title="印刷"
               className="p-2 text-gray-500 hover:text-indigo-600 hover:bg-gray-100 rounded-lg transition"
             >
@@ -163,7 +203,7 @@ const App: React.FC = () => {
         </header>
 
         {/* View Area */}
-        <div className="flex-1 p-4 sm:p-6 overflow-auto relative">
+        <div className="flex-1 p-4 sm:p-6 overflow-auto relative print-hide-when-all">
           {step === 'setup' && <SetupWizard settings={settings} onSave={s => { setSettings(s); setStep('master'); }} />}
           {step === 'master' && (
             <MasterDataEditor
@@ -175,15 +215,24 @@ const App: React.FC = () => {
             <LessonEditor lessons={lessons} setLessons={setLessons} classes={classes} teachers={teachers} subjects={subjects} rooms={rooms} />
           )}
           {step === 'constraints' && (
-            <ConstraintsEditor teachers={teachers} setTeachers={setTeachers} settings={settings} />
+            <ConstraintsEditor
+              teachers={teachers} setTeachers={setTeachers}
+              classes={classes} setClasses={setClasses}
+              subjects={subjects} setSubjects={setSubjects}
+              rooms={rooms} setRooms={setRooms}
+              settings={settings}
+              optionPresets={optionPresets} setOptionPresets={setOptionPresets}
+              activeOptionId={activeOptionId} setActiveOptionId={setActiveOptionId}
+            />
           )}
           {step === 'timetable' && (
             <TimetableGrid
               settings={settings} classes={classes} teachers={teachers} subjects={subjects} rooms={rooms}
               lessons={lessons} placements={placements} setPlacements={setPlacements}
-              onRunScheduler={handleRunScheduler} isRunning={isRunning}
+              onRunScheduler={handleRunScheduler} isRunning={isRunning} activeOption={activeOption}
             />
           )}
+          {step === 'summary' && <SummaryReport data={currentData()} />}
         </div>
 
         <AIAssistant
@@ -197,6 +246,15 @@ const App: React.FC = () => {
           placements={placements}
         />
       </main>
+
+      <PrintSettingsDialog
+        isOpen={isPrintOpen}
+        onClose={() => setIsPrintOpen(false)}
+        data={currentData()}
+        printSettings={printSettings}
+        setPrintSettings={setPrintSettings}
+      />
+      <MergeDataDialog isOpen={isMergeOpen} onClose={() => setIsMergeOpen(false)} onMerge={handleMerge} />
     </div>
   );
 };

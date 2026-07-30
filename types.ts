@@ -4,6 +4,7 @@ export interface SchoolClass {
   id: string;
   name: string;      // e.g. "1年A組"
   grade?: string;     // e.g. "1年"
+  unavailable: SlotKey[]; // 授業を入れない曜日・時限（学級会・行事等）
 }
 
 export interface Teacher {
@@ -19,11 +20,13 @@ export interface Subject {
   name: string;
   color: string;        // tailwind color key, e.g. 'blue'
   maxPerDayPerClass?: number; // 1日に同じ科目を何回までクラスに入れられるか（既定1）
+  unavailable: SlotKey[]; // その科目を配置できない曜日・時限（例：実技科目は1限不可）
 }
 
 export interface Room {
   id: string;
   name: string;
+  unavailable: SlotKey[]; // 教室が使用できない曜日・時限（他行事による使用不可等）
 }
 
 export type LessonType = 'basic' | 'selective';
@@ -63,6 +66,35 @@ export interface TimetableSettings {
   lunchAfterPeriod?: number; // 昼休みの位置（表示用の区切り線）
 }
 
+// 全体オプション: 駒入れ（自動作成）の動作条件のプリセット
+export interface SchedulerOptions {
+  id: string;
+  name: string;
+  avoidConsecutiveSameSubject: boolean; // 同じクラスで同じ科目を連続時限に置かない
+  spreadEvenly: boolean;                // 同じ授業をなるべく曜日ごとに均等分散させる
+  maxAttempts: number;                  // 駒入れの試行回数（多いほど精度は上がるが遅くなる）
+}
+
+export const DEFAULT_SCHEDULER_OPTIONS = (name = '標準'): SchedulerOptions => ({
+  id: Math.random().toString(36).substr(2, 9),
+  name,
+  avoidConsecutiveSameSubject: true,
+  spreadEvenly: true,
+  maxAttempts: 25,
+});
+
+export interface PrintSettings {
+  paperSize: 'A4' | 'B5' | 'Letter';
+  orientation: 'portrait' | 'landscape';
+  target: 'current' | 'allClasses';
+}
+
+export const DEFAULT_PRINT_SETTINGS: PrintSettings = {
+  paperSize: 'A4',
+  orientation: 'landscape',
+  target: 'current',
+};
+
 export interface ChatMessage {
   id: string;
   role: 'user' | 'model';
@@ -97,6 +129,8 @@ export interface ProjectData {
   rooms: Room[];
   lessons: Lesson[];
   placements: Placement[];
+  optionPresets: SchedulerOptions[];
+  activeOptionId: string;
 }
 
-export type AppStep = 'setup' | 'master' | 'lessons' | 'constraints' | 'timetable';
+export type AppStep = 'setup' | 'master' | 'lessons' | 'constraints' | 'timetable' | 'summary';

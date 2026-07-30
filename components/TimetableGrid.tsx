@@ -1,7 +1,7 @@
 import React, { useMemo, useState } from 'react';
 import { Lock, Unlock, X, Wand2, RefreshCw } from 'lucide-react';
 import {
-  Lesson, Placement, SchoolClass, Teacher, Room, Subject, TimetableSettings, SUBJECT_COLOR_CLASSES,
+  Lesson, Placement, SchoolClass, Teacher, Room, Subject, TimetableSettings, SchedulerOptions, SUBJECT_COLOR_CLASSES,
 } from '../types';
 import { generateId } from '../utils';
 import { isValidPlacement, SchedulerContext } from '../services/scheduler';
@@ -19,6 +19,7 @@ interface Props {
   setPlacements: React.Dispatch<React.SetStateAction<Placement[]>>;
   onRunScheduler: () => void;
   isRunning: boolean;
+  activeOption: SchedulerOptions;
 }
 
 interface Menu {
@@ -37,7 +38,7 @@ export const computeUnplaced = (lessons: Lesson[], placements: Placement[]) => {
 };
 
 export const TimetableGrid: React.FC<Props> = ({
-  settings, classes, teachers, subjects, rooms, lessons, placements, setPlacements, onRunScheduler, isRunning,
+  settings, classes, teachers, subjects, rooms, lessons, placements, setPlacements, onRunScheduler, isRunning, activeOption,
 }) => {
   const [viewBy, setViewBy] = useState<ViewBy>('class');
   const [entityId, setEntityId] = useState<string | null>(classes[0]?.id ?? null);
@@ -48,7 +49,7 @@ export const TimetableGrid: React.FC<Props> = ({
   const currentEntityId = entityId && entities.some(e => e.id === entityId) ? entityId : entities[0]?.id ?? null;
 
   const lessonById = useMemo(() => new Map(lessons.map(l => [l.id, l])), [lessons]);
-  const ctx: SchedulerContext = { settings, classes, teachers, subjects, lessons };
+  const ctx: SchedulerContext = { settings, classes, teachers, subjects, rooms, lessons, options: activeOption };
 
   const relevantPlacements = useMemo(() => {
     if (!currentEntityId) return [];
@@ -149,7 +150,7 @@ export const TimetableGrid: React.FC<Props> = ({
 
   return (
     <div className="flex flex-col h-full gap-3" onClick={() => setMenu(null)}>
-      <div className="flex items-center justify-between flex-wrap gap-2">
+      <div className="flex items-center justify-between flex-wrap gap-2 no-print">
         <div className="flex items-center gap-2">
           <div className="flex bg-gray-100 rounded-lg p-1">
             {(['class', 'teacher', 'room'] as ViewBy[]).map(v => (
@@ -250,7 +251,7 @@ export const TimetableGrid: React.FC<Props> = ({
           )}
         </div>
 
-        <div className="w-64 flex-shrink-0 bg-white rounded-xl border border-gray-200 shadow-sm p-3 overflow-auto">
+        <div className="w-64 flex-shrink-0 bg-white rounded-xl border border-gray-200 shadow-sm p-3 overflow-auto no-print">
           <h4 className="text-xs font-semibold text-gray-500 mb-2">残り駒（未配置） {unplaced.reduce((s, u) => s + u.remaining, 0)}</h4>
           <div className="space-y-1.5">
             {unplaced.map(({ lesson, remaining }) => {

@@ -69,7 +69,7 @@ export const AIAssistant: React.FC<Props> = ({
 
   return (
     <div
-      className={`fixed top-0 right-0 h-full w-full sm:w-96 bg-white border-l border-gray-200 shadow-2xl z-40 flex flex-col transition-transform duration-300 ${
+      className={`no-print fixed top-0 right-0 h-full w-full sm:w-96 bg-white border-l border-gray-200 shadow-2xl z-40 flex flex-col transition-transform duration-300 ${
         isOpen ? 'translate-x-0' : 'translate-x-full'
       }`}
     >

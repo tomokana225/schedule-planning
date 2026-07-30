@@ -1,4 +1,7 @@
-import { Lesson, Placement, SchoolClass, Subject, Teacher, TimetableSettings } from '../types';
+import {
+  Lesson, Placement, SchoolClass, Subject, Teacher, Room, TimetableSettings, SchedulerOptions,
+  DEFAULT_SCHEDULER_OPTIONS,
+} from '../types';
 import { generateId, hasSlot } from '../utils';
 
 export interface SchedulerContext {
@@ -6,7 +9,9 @@ export interface SchedulerContext {
   classes: SchoolClass[];
   teachers: Teacher[];
   subjects: Subject[];
+  rooms: Room[];
   lessons: Lesson[];
+  options?: SchedulerOptions;
 }
 
 const lessonMap = (lessons: Lesson[]) => new Map(lessons.map(l => [l.id, l]));
@@ -21,7 +26,8 @@ export const isValidPlacement = (
   period: number,
   excludeIds: Set<string> = new Set(),
 ): boolean => {
-  const { settings, teachers, subjects } = ctx;
+  const { settings, teachers, subjects, classes, rooms } = ctx;
+  const options = ctx.options ?? DEFAULT_SCHEDULER_OPTIONS();
   const lessons = lessonMap(ctx.lessons);
   if (period + lesson.consecutive - 1 > settings.periodsPerDay) return false;
 
@@ -37,11 +43,21 @@ export const isValidPlacement = (
       if (otherLesson.teacherIds.some(t => lesson.teacherIds.includes(t))) return false;
       if (otherLesson.roomIds.some(r => lesson.roomIds.includes(r))) return false;
     }
-    // Teacher unavailable times
+    // Teacher/class/subject/room unavailable times (禁制)
     for (const teacherId of lesson.teacherIds) {
       const teacher = teachers.find(t => t.id === teacherId);
       if (teacher && hasSlot(teacher.unavailable, day, p)) return false;
     }
+    for (const classId of lesson.classIds) {
+      const cls = classes.find(c => c.id === classId);
+      if (cls && hasSlot(cls.unavailable, day, p)) return false;
+    }
+    for (const roomId of lesson.roomIds) {
+      const room = rooms.find(r => r.id === roomId);
+      if (room && hasSlot(room.unavailable, day, p)) return false;
+    }
+    const subjectForSlot = subjects.find(s => s.id === lesson.subjectId);
+    if (subjectForSlot && hasSlot(subjectForSlot.unavailable, day, p)) return false;
   }
 
   // Teacher max lessons per day
@@ -66,6 +82,19 @@ export const isValidPlacement = (
       return l?.subjectId === lesson.subjectId && l.classIds.includes(classId);
     }).length;
     if (countThatDay + 1 > maxPerDay) return false;
+  }
+
+  // 全体オプション: 同じ科目を連続時限に置かない
+  if (options.avoidConsecutiveSameSubject) {
+    const adjacentPeriods = [periods[0] - 1, periods[periods.length - 1] + 1];
+    for (const classId of lesson.classIds) {
+      const hasAdjacentSameSubject = placements.some(pl => {
+        if (excludeIds.has(pl.id) || pl.day !== day || !adjacentPeriods.includes(pl.period)) return false;
+        const l = lessons.get(pl.lessonId);
+        return l?.subjectId === lesson.subjectId && l.classIds.includes(classId);
+      });
+      if (hasAdjacentSameSubject) return false;
+    }
   }
 
   return true;
@@ -96,8 +125,23 @@ const difficultyScore = (lesson: Lesson, teachers: Teacher[]): number => {
 
 const attempt = (ctx: SchedulerContext, keepConfirmed: Placement[]): RunResult => {
   const { settings, teachers, lessons } = ctx;
+  const options = ctx.options ?? DEFAULT_SCHEDULER_OPTIONS();
   const placements: Placement[] = [...keepConfirmed];
   const unplacedCount = new Map<string, number>();
+
+  // Tracks total placements already made per class per day, used for the
+  // "曜日ごとに均等分散させる" option so lessons prefer the day where the
+  // class currently has the fewest lessons scheduled.
+  const classDayLoad = new Map<string, number>();
+  const loadKey = (classId: string, day: number) => `${classId}-${day}`;
+  for (const p of placements) {
+    const l = lessons.find(x => x.id === p.lessonId);
+    if (!l) continue;
+    for (const classId of l.classIds) {
+      const key = loadKey(classId, p.day);
+      classDayLoad.set(key, (classDayLoad.get(key) || 0) + 1);
+    }
+  }
 
   const orderedLessons = shuffle(lessons)
     .slice()
@@ -109,8 +153,15 @@ const attempt = (ctx: SchedulerContext, keepConfirmed: Placement[]): RunResult =
     const usedDays = new Set(placements.filter(p => p.lessonId === lesson.id).map(p => p.day));
 
     for (let i = 0; i < remaining; i++) {
-      const dayOrder = shuffle(settings.days.map((_, idx) => idx))
-        .sort((a, b) => (usedDays.has(a) ? 1 : 0) - (usedDays.has(b) ? 1 : 0));
+      const dayIndexes = shuffle(settings.days.map((_, idx) => idx));
+      const dayOrder = dayIndexes.sort((a, b) => {
+        const usedDiff = (usedDays.has(a) ? 1 : 0) - (usedDays.has(b) ? 1 : 0);
+        if (usedDiff !== 0) return usedDiff;
+        if (!options.spreadEvenly) return 0;
+        const loadA = Math.max(...lesson.classIds.map(c => classDayLoad.get(loadKey(c, a)) || 0), 0);
+        const loadB = Math.max(...lesson.classIds.map(c => classDayLoad.get(loadKey(c, b)) || 0), 0);
+        return loadA - loadB;
+      });
       const periodOrder = shuffle(Array.from({ length: settings.periodsPerDay }, (_, idx) => idx + 1));
 
       let placed = false;
@@ -119,6 +170,10 @@ const attempt = (ctx: SchedulerContext, keepConfirmed: Placement[]): RunResult =
           if (isValidPlacement(ctx, placements, lesson, day, period)) {
             placements.push({ id: generateId(), lessonId: lesson.id, day, period, confirmed: false });
             usedDays.add(day);
+            for (const classId of lesson.classIds) {
+              const key = loadKey(classId, day);
+              classDayLoad.set(key, (classDayLoad.get(key) || 0) + 1);
+            }
             placed = true;
             break;
           }
@@ -138,9 +193,11 @@ const attempt = (ctx: SchedulerContext, keepConfirmed: Placement[]): RunResult =
 };
 
 // Runs the auto-assignment (駒入れ), keeping any already-confirmed placements fixed,
-// and tries several randomized attempts to minimize leftover (未配置) lessons.
-export const runScheduler = (ctx: SchedulerContext, existingPlacements: Placement[], attempts = 25): RunResult => {
+// and tries several randomized attempts (per the active 全体オプション's maxAttempts)
+// to minimize leftover (未配置) lessons.
+export const runScheduler = (ctx: SchedulerContext, existingPlacements: Placement[]): RunResult => {
   const keepConfirmed = existingPlacements.filter(p => p.confirmed);
+  const attempts = ctx.options?.maxAttempts ?? 25;
   let best: RunResult | null = null;
 
   for (let i = 0; i < attempts; i++) {

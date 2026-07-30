@@ -30,7 +30,7 @@ export const MasterDataEditor: React.FC<Props> = ({
 
   const addRow = () => {
     if (tab === 'classes') {
-      setClasses(prev => [...prev, { id: generateId(), name: `新しいクラス${prev.length + 1}` }]);
+      setClasses(prev => [...prev, { id: generateId(), name: `新しいクラス${prev.length + 1}`, unavailable: [] }]);
     } else if (tab === 'teachers') {
       setTeachers(prev => [...prev, { id: generateId(), name: `先生${prev.length + 1}`, unavailable: [] }]);
     } else if (tab === 'subjects') {
@@ -39,9 +39,10 @@ export const MasterDataEditor: React.FC<Props> = ({
         name: `科目${prev.length + 1}`,
         color: SUBJECT_COLORS[prev.length % SUBJECT_COLORS.length],
         maxPerDayPerClass: 1,
+        unavailable: [],
       }]);
     } else {
-      setRooms(prev => [...prev, { id: generateId(), name: `教室${prev.length + 1}` }]);
+      setRooms(prev => [...prev, { id: generateId(), name: `教室${prev.length + 1}`, unavailable: [] }]);
     }
   };
 

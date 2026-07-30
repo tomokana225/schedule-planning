@@ -37,3 +37,20 @@ body {
 .dashed-border {
   border-style: dashed;
 }
+
+/* Print handling: hide app chrome, and swap in the all-classes printable
+   container when printing every class at once (see PrintSettingsDialog). */
+#print-all-container {
+  display: none;
+}
+@media print {
+  .no-print {
+    display: none !important;
+  }
+  body.printing-all .print-hide-when-all {
+    display: none !important;
+  }
+  body.printing-all #print-all-container {
+    display: block !important;
+  }
+}
