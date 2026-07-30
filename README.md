@@ -1,20 +1,27 @@
-<div align="center">
-<img width="1200" height="475" alt="GHBanner" src="https://github.com/user-attachments/assets/0aa67016-6eaf-458a-adb2-6e31a0763ed6" />
-</div>
+# AI時間割 (School Timetable AI)
 
-# Run and deploy your AI Studio app
+学校のクラス・先生・科目・教室のデータから、条件（先生の授業不可時間、科目の1日最大回数など）を
+守りながら時間割を自動生成（駒入れ）し、画面上のグリッドでドラッグ操作・確定・駒はずしなどにより
+手直し・調整できるWebアプリです。
 
-This contains everything you need to run your app locally.
+## 使い方の流れ
 
-View your app in AI Studio: https://ai.studio/apps/drive/117KqJLTvRERNV3AfudQhP5pgmhzsRyXI
+1. **基本設定**: 学校名、週の日数、1日の時限数、昼休みの位置を設定
+2. **マスタデータ**: クラス・先生・科目・教室を登録
+3. **授業設定**: クラス×科目×先生×教室の組み合わせ（授業）を、週コマ数・連続授業の有無とともに登録
+4. **個別条件**: 先生ごとに授業できない曜日・時限（禁制）を設定
+5. **時間割作成**: 「AIで自動駒入れ」ボタンで自動配置。グリッド上でドラッグ&ドロップにより駒を移動・入れ替え、
+   右クリックメニューで確定/確定解除・駒はずしが可能。未配置の授業は「残り駒」パネルに表示されます。
+
+右上のツールバーから、JSON形式でのファイル保存/読み込み、CSV出力、印刷ができます。
+右サイドバーの「AIアシスタント」からは、未配置授業の原因や調整方法について相談できます。
 
 ## Run Locally
 
-**Prerequisites:**  Node.js
-
+**Prerequisites:** Node.js
 
 1. Install dependencies:
    `npm install`
-2. Set the `GEMINI_API_KEY` in [.env.local](.env.local) to your Gemini API key
+2. Set the `GEMINI_API_KEY`（Cloudflare環境では `API_KEY`）を設定
 3. Run the app:
    `npm run dev`

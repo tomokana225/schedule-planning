@@ -1,5 +1,5 @@
 {
-  "name": "OptiPlan AI",
-  "description": "An intelligent schedule management app that visualizes your calendar and uses AI to optimize your day, find free slots, and suggest the best plans for your tasks.",
+  "name": "AI時間割",
+  "description": "学校のクラス・先生・科目・教室から時間割を自動で組み立て（駒入れ）、画面上でドラッグ操作や確定・駒はずしで手直しできる、AIによる時間割作成支援Webアプリ。",
   "requestFramePermissions": []
 }
