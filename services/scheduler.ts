@@ -216,34 +216,22 @@ const attempt = (ctx: SchedulerContext, keepConfirmed: Placement[]): RunResult =
 };
 
 // Runs the auto-assignment (駒入れ), keeping any already-confirmed placements fixed,
-// and tries randomized attempts (starting from the active 全体オプション's maxAttempts)
-// to minimize leftover (未配置) lessons across every class/grade. If the configured
-// number of attempts isn't enough to place every lesson, it keeps retrying beyond
-// that — up to a safety cap on extra attempts and elapsed time, so a dataset that's
-// structurally impossible to fully place (e.g. not enough teacher/room slots) can't
-// freeze the browser forever — stopping the moment every lesson is placed (0 残り駒).
-const EXTRA_ATTEMPT_CAP = 1000;
-const EXTRA_TIME_BUDGET_MS = 10000;
-
+// and tries up to 試行回数 (maxAttempts) randomized attempts, keeping whichever leaves
+// the fewest lessons unplaced and stopping early the moment one reaches 0 残り駒. The
+// configured count is the actual, sole cap — increasing it in the UI directly increases
+// how many attempts run (and how long it can take), so it always has a visible effect.
 export const runScheduler = (ctx: SchedulerContext, existingPlacements: Placement[]): RunResult => {
   const keepConfirmed = existingPlacements.filter(p => p.confirmed);
-  const configuredAttempts = ctx.options?.maxAttempts ?? 25;
-  const now = () => (typeof performance !== 'undefined' ? performance.now() : Date.now());
-  const start = now();
-
+  const attempts = ctx.options?.maxAttempts ?? 25;
   let best: RunResult | null = null;
-  let i = 0;
-  while (true) {
+
+  for (let i = 0; i < attempts; i++) {
     const result = attempt(ctx, keepConfirmed);
     const unplacedTotal = result.unplaced.reduce((s, u) => s + u.count, 0);
     if (!best || unplacedTotal < best.unplaced.reduce((s, u) => s + u.count, 0)) {
       best = result;
+      if (unplacedTotal === 0) break;
     }
-    i++;
-    if (unplacedTotal === 0) break;
-    if (i < configuredAttempts) continue;
-    if (i >= configuredAttempts + EXTRA_ATTEMPT_CAP) break;
-    if (now() - start > EXTRA_TIME_BUDGET_MS) break;
   }
 
   return best!;

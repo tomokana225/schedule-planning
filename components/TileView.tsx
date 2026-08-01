@@ -130,14 +130,14 @@ export const TileView: React.FC<Props> = ({
           ))}
         </div>
         <div className="flex items-center gap-2">
-          <label className="flex items-center gap-1.5 text-xs text-gray-500" title="残り駒が0になるまで試行を重ねる際の最低保証回数">
+          <label className="flex items-center gap-1.5 text-xs text-gray-500" title="AIで自動駒入れを行う際の試行回数（多いほど残り駒0に近づきやすいが時間がかかる）">
             <span>試行回数</span>
             <input
               type="number"
               min={1}
               max={200}
               value={activeOption.maxAttempts}
-              onChange={e => onChangeMaxAttempts(Math.max(1, Number(e.target.value) || 1))}
+              onChange={e => onChangeMaxAttempts(Math.min(200, Math.max(1, Number(e.target.value) || 1)))}
               disabled={isRunning}
               className="w-16 px-2 py-1.5 rounded-lg border border-gray-200 bg-white text-gray-700 disabled:opacity-50"
             />
