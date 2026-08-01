@@ -21,6 +21,7 @@ export const buildMockProjectData = (): ProjectData => {
   }));
   const classByName = new Map(classes.map(c => [c.name, c]));
   const gradeOf = (className: string) => className.match(/^(\d+)年/)![1];
+  const classIndexInGrade = (className: string) => Number(className.match(/(\d+)組$/)![1]) - 1;
 
   const teacherDefs: { name: string; short: string }[] = [
     { name: '山田太郎', short: '山田' }, { name: '佐藤花子', short: '佐藤' }, { name: '鈴木一郎', short: '鈴木' },
@@ -31,6 +32,7 @@ export const buildMockProjectData = (): ProjectData => {
     { name: '木村隆', short: '木村' }, { name: '林美穂', short: '林' }, { name: '清水健一', short: '清水' },
     { name: '山口愛', short: '山口' }, { name: '森田翔', short: '森田' }, { name: '池田久美子', short: '池田' },
     { name: '石川優子', short: '石川' }, { name: '前田直樹', short: '前田' },
+    { name: '松田健太', short: '松田' }, { name: '藤田真希', short: '藤田' },
   ];
   const teachers: Teacher[] = teacherDefs.map(t => ({
     id: generateId(), name: t.name, short: t.short, unavailable: [],
@@ -78,6 +80,8 @@ export const buildMockProjectData = (): ProjectData => {
   // （既定の週30コマ枠に対し空きは週1コマのみ）。道徳・学級活動はホームルーム教室で、
   // 国語・社会の学年担当教員は主要教科だけで既に週20コマと余裕が少ないため、より
   // 空きに余裕がある保健体育・技術家庭の学年担当教員が受け持つ形にしている。
+  // 1年生の国語・社会だけは、駒入れの成功率を上げるため学年内でさらに2人に分担
+  // （1〜3組／4〜5組）している。
   const subjectPlan: {
     subject: string;
     weeklyCount: number;
@@ -87,8 +91,18 @@ export const buildMockProjectData = (): ProjectData => {
     priority?: boolean;
     teacherFor: (className: string) => string;
   }[] = [
-    { subject: '国語', weeklyCount: 4, room: 'homeroom', teacherFor: cn => gradeTeachers['国語'][Number(gradeOf(cn)) - 1] },
-    { subject: '社会', weeklyCount: 4, room: 'homeroom', teacherFor: cn => gradeTeachers['社会'][Number(gradeOf(cn)) - 1] },
+    {
+      subject: '国語', weeklyCount: 4, room: 'homeroom',
+      teacherFor: cn => (gradeOf(cn) === '1'
+        ? (classIndexInGrade(cn) < 3 ? '山田太郎' : '松田健太')
+        : gradeTeachers['国語'][Number(gradeOf(cn)) - 1]),
+    },
+    {
+      subject: '社会', weeklyCount: 4, room: 'homeroom',
+      teacherFor: cn => (gradeOf(cn) === '1'
+        ? (classIndexInGrade(cn) < 3 ? '田中美咲' : '藤田真希')
+        : gradeTeachers['社会'][Number(gradeOf(cn)) - 1]),
+    },
     { subject: '数学', weeklyCount: 4, room: 'homeroom', teacherFor: cn => gradeTeachers['数学'][Number(gradeOf(cn)) - 1] },
     {
       subject: '理科', weeklyCount: 4, room: 'special-split', specialRoomBase: '理科室', specialRoomCount: 3, priority: true,
