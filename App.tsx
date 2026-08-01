@@ -104,7 +104,10 @@ const App: React.FC = () => {
 
     try {
       const result = await runSchedulerAsync(
-        { settings, classes, teachers, subjects, rooms, lessons, options: activeOption, meetings },
+        {
+          settings, classes, teachers, subjects, rooms, lessons, options: activeOption, meetings,
+          exploreAfterComplete: true,
+        },
         placements,
         best => setPreviewPlacements(best.placements),
       );

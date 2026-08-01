@@ -14,6 +14,12 @@ export interface SchedulerContext {
   options?: SchedulerOptions;
   meetings?: Meeting[]; // 会議の簡単設定: 指定した曜日・時限・先生（・教室）を拘束する
   isBandMode?: boolean; // 帯時間割の作成中か（1本の連続した枠として扱い、1日あたりの上限は適用しない）
+  // 残り駒0に達した後も実行時間いっぱいまで探索を続け、違うパターンを見つけ次第
+  // 採用するか（true）、0に達した時点で即座に終えるか（false・既定）。対話的な
+  // 「AIで自動駒入れ」ボタンではライブプレビューと残り秒数表示があるため待たせても
+  // 問題ないが、帯時間割の自動作成のように進捗表示のない同期呼び出しでは、既定の
+  // 「0になったら即終了」を維持し、無用にブラウザを長時間フリーズさせない。
+  exploreAfterComplete?: boolean;
 }
 
 const lessonMap = (lessons: Lesson[]) => new Map(lessons.map(l => [l.id, l]));
@@ -429,36 +435,44 @@ const totalUnplaced = (r: RunResult): number => r.unplaced.reduce((s, u) => s + 
 
 // Drives the auto-assignment (駒入れ), keeping any already-confirmed placements fixed,
 // within the configured time budget (実行時間、秒), keeping whichever leaves the fewest
-// lessons unplaced and stopping early the moment one reaches 0 残り駒. The configured
-// seconds is the actual, sole cap for this phase — increasing it in the UI directly
-// increases how long the search keeps running. Yields the current best every time it
-// genuinely improves, so a caller (sync or async) can observe progress as it happens;
-// the final `return` value is always the true end result.
+// lessons unplaced. The configured seconds is the actual, sole cap for this phase —
+// increasing it in the UI directly increases how long the search keeps running. Yields
+// the current best every time it changes, so a caller (sync or async) can observe
+// progress as it happens; the final `return` value is always the true end result.
 //
 // Every round tries three different moves against whichever result is currently best,
-// keeping each one only if it's a genuine improvement: a fresh, fully random from-scratch
-// reconstruction (this is what makes a new button press meaningfully different from just
-// continuing to fiddle with what's already there — pure random restarts remain one of the
-// best tools for escaping a bad structure entirely); repairing whichever lessons are
-// still unplaced via the chain search above; and perturbing a small random handful of
-// already-placed (non-confirmed) komas — pulling them back out and re-integrating them —
-// since repair alone only ever touches lessons that are ALREADY unplaced, and a schedule
-// can settle into a good-but-imperfect shape that only gets better once something that
-// already fit is deliberately disturbed and given a chance to land somewhere else.
+// keeping each one only if it's a genuine improvement (or, once 残り駒 has already
+// reached 0, if it's simply a different equally-complete arrangement — see `acceptable`
+// below): a fresh, fully random from-scratch reconstruction (this is what makes a new
+// button press meaningfully different from just continuing to fiddle with what's
+// already there — pure random restarts remain one of the best tools for escaping a bad
+// structure entirely, or for finding an alternative arrangement once already complete);
+// repairing whichever lessons are still unplaced via the chain search above; and
+// perturbing a small random handful of already-placed (non-confirmed) komas — pulling
+// them back out and re-integrating them — since repair alone only ever touches lessons
+// that are ALREADY unplaced, and a schedule can settle into a good-but-imperfect shape
+// that only gets better once something that already fit is deliberately disturbed and
+// given a chance to land somewhere else.
+//
+// The search deliberately does NOT stop the moment 残り駒 first reaches 0: it keeps
+// running for the rest of the configured time, still trying all three moves, so that
+// 自動駒入れ succeeding once doesn't make running it again (or leaving the same run
+// going) pointless — the timetable keeps reshuffling between different fully-valid
+// arrangements until time runs out, ending on whichever one was found last.
 //
 // `best` is seeded with the schedule that's already on screen (existingPlacements), not
 // just its confirmed subset, so re-running can never silently hand back something worse:
-// every one of these three moves only replaces `best` once it's a genuine improvement in
-// 残り駒. Without this, every click was a gamble — a worse random attempt could overwrite
-// an already-good (or already-complete) schedule, which is what made "just keep clicking
-// a short run and stop when it looks good" feel more reliable than one longer run.
+// every one of these three moves only replaces `best` once `acceptable` says so. Without
+// this, every click was a gamble — a worse random attempt could overwrite an already-good
+// schedule, which is what made "just keep clicking a short run and stop when it looks
+// good" feel more reliable than one longer run.
 function* runSchedulerSteps(ctx: SchedulerContext, existingPlacements: Placement[]): Generator<RunResult, RunResult, void> {
   const keepConfirmed = existingPlacements.filter(p => p.confirmed);
   const budgetMs = (ctx.options?.maxSeconds ?? 15) * 1000;
   const start = now();
 
   let best: RunResult = { placements: existingPlacements, unplaced: summarizeUnplaced(ctx.lessons, existingPlacements) };
-  if (totalUnplaced(best) === 0) return best;
+  if (ctx.lessons.length === 0) return best; // nothing to place, nothing to explore
 
   // Yielding only on genuine improvement isn't enough on its own: long stretches
   // where nothing improves (common once the search is close to its limit) would
@@ -477,17 +491,38 @@ function* runSchedulerSteps(ctx: SchedulerContext, existingPlacements: Placement
     return false;
   };
 
-  while (totalUnplaced(best) > 0 && now() - start < budgetMs) {
+  // A candidate replaces `best` if it genuinely has fewer unplaced lessons — or, when
+  // ctx.exploreAfterComplete is set and a fully valid (0 残り駒) schedule has already
+  // been found, if the candidate is ALSO fully valid. There's no way to improve on 0 by
+  // this metric, but for callers that opt in, that doesn't mean the search should stop
+  // finding things to do: every fresh attempt or perturbation that also reaches 0 is a
+  // genuinely different valid arrangement, so it's accepted as a fresh pattern to show
+  // instead of being discarded just because it isn't "better" than the one already
+  // found. Callers that DON'T opt in (no live progress UI to make the extra wait
+  // worthwhile) get the original behavior: stop the moment 残り駒 first reaches 0.
+  const acceptable = (candidate: RunResult, current: RunResult): boolean => {
+    const candidateUnplaced = totalUnplaced(candidate);
+    const currentUnplaced = totalUnplaced(current);
+    if (candidateUnplaced < currentUnplaced) return true;
+    return !!ctx.exploreAfterComplete && candidateUnplaced === 0 && currentUnplaced === 0;
+  };
+
+  // Once 残り駒 hits 0, callers that didn't opt into exploreAfterComplete are done —
+  // stop immediately instead of running pointless repair/perturb passes (there's
+  // nothing left to repair, and nothing to gain by perturbing when the result won't
+  // be kept anyway).
+  const doneUnlessExploring = () => !ctx.exploreAfterComplete && totalUnplaced(best) === 0;
+
+  while ((ctx.exploreAfterComplete || totalUnplaced(best) > 0) && now() - start < budgetMs) {
     const result = attempt(ctx, keepConfirmed);
-    if (totalUnplaced(result) < totalUnplaced(best)) {
+    if (acceptable(result, best)) {
       best = result;
       yield best;
       lastTick = now();
     } else if (tick()) {
       yield best;
     }
-    if (totalUnplaced(best) === 0) break;
-    if (now() - start >= budgetMs) break;
+    if (doneUnlessExploring() || now() - start >= budgetMs) break;
 
     // Cap each repair/perturb call to a short slice of its own, regardless of how much
     // of the overall budget remains: on heavily-contested data the depth-3 chain search
@@ -498,19 +533,18 @@ function* runSchedulerSteps(ctx: SchedulerContext, existingPlacements: Placement
     // countdown/preview freeze solid instead of ticking down smoothly on harder data.
     const repairDeadline = Math.min(start + budgetMs, now() + REPAIR_SLICE_MS);
     const repaired = repairRemainingOnce(ctx, best, repairDeadline);
-    if (totalUnplaced(repaired) < totalUnplaced(best)) {
+    if (acceptable(repaired, best)) {
       best = repaired;
       yield best;
       lastTick = now();
     } else if (tick()) {
       yield best;
     }
-    if (totalUnplaced(best) === 0) break;
-    if (now() - start >= budgetMs) break;
+    if (doneUnlessExploring() || now() - start >= budgetMs) break;
 
     const perturbDeadline = Math.min(start + budgetMs, now() + REPAIR_SLICE_MS);
     const perturbed = perturbAndRetry(ctx, best, perturbDeadline);
-    if (totalUnplaced(perturbed) < totalUnplaced(best)) {
+    if (acceptable(perturbed, best)) {
       best = perturbed;
       yield best;
       lastTick = now();
