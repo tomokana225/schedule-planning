@@ -34,17 +34,24 @@ export const isValidPlacement = (
   if (period + lesson.consecutive - 1 > settings.periodsPerDay) return false;
 
   const periods = Array.from({ length: lesson.consecutive }, (_, i) => period + i);
+  const targetEnd = period + lesson.consecutive - 1;
+
+  // Overlap check against existing placements: compares full [start, end] spans
+  // rather than just exact start-period equality, so a 2-period placement's
+  // *second* period is also caught as a conflict (not just placements that
+  // happen to start on the exact same period).
+  for (const other of placements) {
+    if (excludeIds.has(other.id) || other.day !== day) continue;
+    const otherLesson = lessons.get(other.lessonId);
+    if (!otherLesson) continue;
+    const otherEnd = other.period + otherLesson.consecutive - 1;
+    if (period > otherEnd || other.period > targetEnd) continue; // no overlap
+    if (otherLesson.classIds.some(c => lesson.classIds.includes(c))) return false;
+    if (otherLesson.teacherIds.some(t => lesson.teacherIds.includes(t))) return false;
+    if (otherLesson.roomIds.some(r => lesson.roomIds.includes(r))) return false;
+  }
 
   for (const p of periods) {
-    for (const other of placements) {
-      if (excludeIds.has(other.id)) continue;
-      if (other.day !== day || other.period !== p) continue;
-      const otherLesson = lessons.get(other.lessonId);
-      if (!otherLesson) continue;
-      if (otherLesson.classIds.some(c => lesson.classIds.includes(c))) return false;
-      if (otherLesson.teacherIds.some(t => lesson.teacherIds.includes(t))) return false;
-      if (otherLesson.roomIds.some(r => lesson.roomIds.includes(r))) return false;
-    }
     // Teacher/class/subject/room unavailable times (禁制)
     for (const teacherId of lesson.teacherIds) {
       const teacher = teachers.find(t => t.id === teacherId);
