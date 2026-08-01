@@ -2,7 +2,7 @@ import {
   Lesson, Placement, SchoolClass, Subject, Teacher, Room, TimetableSettings, SchedulerOptions,
   DEFAULT_SCHEDULER_OPTIONS, Meeting,
 } from '../types';
-import { generateId, hasSlot } from '../utils';
+import { generateId, hasSlot, periodsForDay, maxPeriodsAcrossDays } from '../utils';
 
 export interface SchedulerContext {
   settings: TimetableSettings;
@@ -31,7 +31,10 @@ export const isValidPlacement = (
   const { settings, teachers, subjects, classes, rooms, meetings = [] } = ctx;
   const options = ctx.options ?? DEFAULT_SCHEDULER_OPTIONS();
   const lessons = lessonMap(ctx.lessons);
-  if (period + lesson.consecutive - 1 > settings.periodsPerDay) return false;
+  // 帯時間割は曜日ごとの時限数という概念がない単一の連続枠なので、通常の
+  // periodsPerDay をそのまま使う（曜日ごとの例外は通常の時間割にのみ適用）。
+  const dayPeriodCount = ctx.isBandMode ? settings.periodsPerDay : periodsForDay(settings, day);
+  if (period + lesson.consecutive - 1 > dayPeriodCount) return false;
 
   const periods = Array.from({ length: lesson.consecutive }, (_, i) => period + i);
   const targetEnd = period + lesson.consecutive - 1;
@@ -185,7 +188,7 @@ const attempt = (ctx: SchedulerContext, keepConfirmed: Placement[]): RunResult =
         const loadB = Math.max(...lesson.classIds.map(c => classDayLoad.get(loadKey(c, b)) || 0), 0);
         return loadA - loadB;
       });
-      const periodOrder = shuffle(Array.from({ length: settings.periodsPerDay }, (_, idx) => idx + 1));
+      const periodOrder = shuffle(Array.from({ length: maxPeriodsAcrossDays(settings) }, (_, idx) => idx + 1));
 
       let placed = false;
       for (const day of dayOrder) {

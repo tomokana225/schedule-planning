@@ -1,4 +1,5 @@
 import { ProjectData, SchoolClass, Lesson, Placement } from '../types';
+import { periodsForDay, maxPeriodsAcrossDays } from '../utils';
 
 const SUBJECT_HEX: Record<string, { bg: string; text: string }> = {
   blue: { bg: '#DBEAFE', text: '#1E40AF' },
@@ -34,9 +35,10 @@ const buildClassTableHtml = (data: ProjectData, cls: SchoolClass): string => {
   };
 
   let rows = '';
-  for (let period = 1; period <= settings.periodsPerDay; period++) {
+  for (let period = 1; period <= maxPeriodsAcrossDays(settings); period++) {
     rows += `<tr${settings.lunchAfterPeriod === period ? ' class="lunch-after"' : ''}><td class="period">${period}限</td>`;
     for (let day = 0; day < settings.days.length; day++) {
+      if (period > periodsForDay(settings, day)) { rows += `<td class="cell na"></td>`; continue; }
       const cell = cellAt(day, period);
       if (cell && cell.placement.period !== period) continue; // covered by rowspan
       if (!cell) { rows += `<td class="cell empty"></td>`; continue; }
@@ -74,6 +76,7 @@ export const HTML_STYLE = `
   td.cell .subject { font-weight: 700; }
   td.cell .teacher { font-size: 11px; opacity: 0.85; }
   td.empty { background: #fafafa; }
+  td.na { background: #e5e7eb; border-style: none; }
   tr.lunch-after td { border-bottom: 3px solid #fcd34d; }
   @media print { body { margin: 0; } h2 { page-break-before: always; } h2:first-of-type { page-break-before: avoid; } }
 `;

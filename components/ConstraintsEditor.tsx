@@ -3,7 +3,7 @@ import { Ban, Users, GraduationCap, BookOpen, DoorOpen, SlidersHorizontal, Plus,
 import {
   Teacher, SchoolClass, Subject, Room, TimetableSettings, SlotKey, SchedulerOptions, DEFAULT_SCHEDULER_OPTIONS,
 } from '../types';
-import { hasSlot } from '../utils';
+import { hasSlot, periodsForDay, maxPeriodsAcrossDays } from '../utils';
 
 type Tab = 'teachers' | 'classes' | 'subjects' | 'rooms' | 'options';
 
@@ -38,12 +38,15 @@ const UnavailableGrid: React.FC<{
       </tr>
     </thead>
     <tbody>
-      {Array.from({ length: settings.periodsPerDay }, (_, pIdx) => {
+      {Array.from({ length: maxPeriodsAcrossDays(settings) }, (_, pIdx) => {
         const period = pIdx + 1;
         return (
           <tr key={period}>
             <td className="text-xs text-gray-400 text-right pr-2">{period}限</td>
             {settings.days.map((_, day) => {
+              if (period > periodsForDay(settings, day)) {
+                return <td key={day} className="p-0.5"><div className="w-14 h-9 rounded-md bg-gray-100/60" /></td>;
+              }
               const blocked = hasSlot(unavailable, day, period);
               return (
                 <td key={day} className="p-0.5">

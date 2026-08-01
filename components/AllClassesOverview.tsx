@@ -1,5 +1,6 @@
 import React from 'react';
 import { SchoolClass, Teacher, Subject, Lesson, Placement, TimetableSettings, SUBJECT_COLOR_CLASSES } from '../types';
+import { periodsForDay, maxPeriodsAcrossDays } from '../utils';
 
 interface Props {
   settings: TimetableSettings;
@@ -36,7 +37,7 @@ export const AllClassesOverview: React.FC<Props> = ({
     groups.get(key)!.push(c);
   }
   const gradeOrder = [...groups.keys()].sort((a, b) => a.localeCompare(b, 'ja'));
-  const periods = Array.from({ length: settings.periodsPerDay }, (_, i) => i + 1);
+  const periods = Array.from({ length: maxPeriodsAcrossDays(settings) }, (_, i) => i + 1);
 
   if (classes.length === 0) {
     return <div className="text-center text-gray-400 text-sm py-12">クラスが登録されていません</div>;
@@ -75,6 +76,9 @@ export const AllClassesOverview: React.FC<Props> = ({
                       <tr key={period} className={settings.lunchAfterPeriod === period ? 'border-b-2 border-amber-300' : ''}>
                         <td className="text-gray-400 text-center pr-1">{period}</td>
                         {settings.days.map((_, day) => {
+                          if (period > periodsForDay(settings, day)) {
+                            return <td key={day} className="bg-gray-100/60" title="この曜日にはこの時限がありません" />;
+                          }
                           const cell = cellAt(cls.id, day, period);
                           if (cell && cell.placement.period !== period) return null; // covered by rowSpan above
                           if (!cell) return <td key={day} className="border border-gray-100 h-6 bg-gray-50" />;

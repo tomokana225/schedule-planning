@@ -4,7 +4,7 @@ import {
   Lesson, Placement, SchoolClass, Teacher, Room, Subject, TimetableSettings, SchedulerOptions, Meeting,
   SUBJECT_COLOR_CLASSES,
 } from '../types';
-import { generateId } from '../utils';
+import { generateId, periodsForDay, maxPeriodsAcrossDays } from '../utils';
 import { isValidPlacement, SchedulerContext } from '../services/scheduler';
 import { suggestMovesForPlacement, suggestSlotsForLesson, slotLabel, Suggestion } from '../services/suggestionService';
 
@@ -349,12 +349,19 @@ export const TimetableGrid: React.FC<Props> = ({
                 </tr>
               </thead>
               <tbody>
-                {Array.from({ length: settings.periodsPerDay }, (_, pIdx) => {
+                {Array.from({ length: maxPeriodsAcrossDays(settings) }, (_, pIdx) => {
                   const period = pIdx + 1;
                   return (
                     <tr key={period} className={settings.lunchAfterPeriod === period ? 'border-b-4 border-amber-100' : ''}>
                       <td className="text-xs text-gray-400 text-right pr-2 align-middle">{period}限</td>
                       {settings.days.map((_, day) => {
+                        if (period > periodsForDay(settings, day)) {
+                          return (
+                            <td key={day} className="p-0.5 align-top">
+                              <div className="w-24 h-11 rounded-md bg-gray-100/60" title="この曜日にはこの時限がありません" />
+                            </td>
+                          );
+                        }
                         const placement = cellAt(day, period);
                         const isStart = placement && placement.period === period;
                         if (placement && !isStart) return null; // covered by rowSpan above

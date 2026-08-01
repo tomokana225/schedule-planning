@@ -1,5 +1,6 @@
 import { Lesson, Placement, SlotKey } from '../types';
 import { isValidPlacement, SchedulerContext } from './scheduler';
+import { maxPeriodsAcrossDays } from '../utils';
 
 const lessonSpan = (lessons: Map<string, Lesson>, placement: Placement): number =>
   lessons.get(placement.lessonId)?.consecutive ?? 1;
@@ -32,7 +33,7 @@ export const suggestSlotsForLesson = (
 ): MoveSuggestion[] => {
   const results: MoveSuggestion[] = [];
   for (let day = 0; day < ctx.settings.days.length && results.length < limit; day++) {
-    for (let period = 1; period <= ctx.settings.periodsPerDay && results.length < limit; period++) {
+    for (let period = 1; period <= maxPeriodsAcrossDays(ctx.settings) && results.length < limit; period++) {
       if (isValidPlacement(ctx, placements, lesson, day, period, new Set())) {
         results.push({ kind: 'move', day, period });
       }
@@ -60,7 +61,7 @@ export const suggestMovesForPlacement = (
   const excludeSelf = new Set([source.id]);
 
   for (let day = 0; day < ctx.settings.days.length && results.length < limit; day++) {
-    for (let period = 1; period <= ctx.settings.periodsPerDay && results.length < limit; period++) {
+    for (let period = 1; period <= maxPeriodsAcrossDays(ctx.settings) && results.length < limit; period++) {
       if (day === source.day && period === source.period) continue;
       const occupant = occupantAt(placements, lessonsMap, day, period);
 
