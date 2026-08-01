@@ -221,11 +221,8 @@ const attempt = (ctx: SchedulerContext, keepConfirmed: Placement[]): RunResult =
 // 全試行の中で最良だった結果に残った未配置授業だけを対象に、直接の空きコマ探索と、
 // 1つだけ既存の駒をどかす簡易ローカルサーチで置き場所を探す。ランダム再試行を
 // 全体でやり直すのではなく、実際に残った少数の未配置だけに絞ることで、
-// 「残り駒0になるまで試行回数の設定に関わらず粘る」処理を、試行回数の設定自体を
+// 「残り駒0になるまで実行時間の設定に関わらず粘る」処理を、時間の設定自体を
 // 無意味にするほど重くせずに行える。
-const REPAIR_ALL_TIME_BUDGET_MS = 10000;
-const REPAIR_ROUNDS = 30;
-
 const repairRemainingOnce = (ctx: SchedulerContext, result: RunResult): RunResult => {
   const { settings, lessons } = ctx;
   const lessonById = lessonMap(lessons);
@@ -304,41 +301,44 @@ const repairRemainingOnce = (ctx: SchedulerContext, result: RunResult): RunResul
   };
 };
 
+const now = () => (typeof performance !== 'undefined' ? performance.now() : Date.now());
+
 // Runs the auto-assignment (駒入れ), keeping any already-confirmed placements fixed,
-// and tries up to 試行回数 (maxAttempts) randomized attempts, keeping whichever leaves
-// the fewest lessons unplaced and stopping early the moment one reaches 0 残り駒. The
-// configured count is the actual, sole cap for this phase — increasing it in the UI
-// directly increases how many attempts run (and how long it can take).
+// and keeps trying randomized attempts within the configured time budget (実行時間、秒),
+// keeping whichever leaves the fewest lessons unplaced and stopping early the moment
+// one reaches 0 残り駒. The configured seconds is the actual, sole cap for this phase —
+// increasing it in the UI directly increases how long attempts keep running.
 //
-// If the best attempt still has leftovers, a second phase repeatedly tries to place
-// just those remaining lessons (direct search + single-blocker local repair) against
-// the best full schedule found — bounded by its own time budget — so 残り駒 keeps
-// shrinking toward 0 for every teacher/class without redoing the whole random search.
+// If the best attempt still has leftovers and time remains in the same budget, a second
+// phase repeatedly tries to place just those remaining lessons (direct search + single-
+// blocker local repair) against the best full schedule found, so 残り駒 keeps shrinking
+// toward 0 for every teacher/class without redoing the whole random search.
 export const runScheduler = (ctx: SchedulerContext, existingPlacements: Placement[]): RunResult => {
   const keepConfirmed = existingPlacements.filter(p => p.confirmed);
-  const attempts = ctx.options?.maxAttempts ?? 25;
+  const budgetMs = (ctx.options?.maxSeconds ?? 15) * 1000;
+  const start = now();
+  // Fresh random attempts get the first half of the budget; the local-search repair
+  // phase always gets the second half (rather than however little happens to be left
+  // over), since it is what actually squeezes 残り駒 toward 0 once random search plateaus.
+  const attemptDeadline = start + budgetMs / 2;
   let best: RunResult | null = null;
 
-  for (let i = 0; i < attempts; i++) {
+  do {
     const result = attempt(ctx, keepConfirmed);
     const unplacedTotal = result.unplaced.reduce((s, u) => s + u.count, 0);
     if (!best || unplacedTotal < best.unplaced.reduce((s, u) => s + u.count, 0)) {
       best = result;
       if (unplacedTotal === 0) break;
     }
-  }
+  } while (now() < attemptDeadline);
 
   let bestUnplaced = best!.unplaced.reduce((s, u) => s + u.count, 0);
-  if (bestUnplaced > 0) {
-    const now = () => (typeof performance !== 'undefined' ? performance.now() : Date.now());
-    const start = now();
-    for (let round = 0; round < REPAIR_ROUNDS && bestUnplaced > 0 && now() - start < REPAIR_ALL_TIME_BUDGET_MS; round++) {
-      const repaired = repairRemainingOnce(ctx, best!);
-      const repairedUnplaced = repaired.unplaced.reduce((s, u) => s + u.count, 0);
-      if (repairedUnplaced < bestUnplaced) {
-        best = repaired;
-        bestUnplaced = repairedUnplaced;
-      }
+  while (bestUnplaced > 0 && now() - start < budgetMs) {
+    const repaired = repairRemainingOnce(ctx, best!);
+    const repairedUnplaced = repaired.unplaced.reduce((s, u) => s + u.count, 0);
+    if (repairedUnplaced < bestUnplaced) {
+      best = repaired;
+      bestUnplaced = repairedUnplaced;
     }
   }
 

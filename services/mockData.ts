@@ -148,9 +148,9 @@ export const buildMockProjectData = (): ProjectData => {
     }
   });
 
-  // 週29コマ（週30コマ枠の97%）と教員を共有する現実的な構成のため、既定の25回より
-  // 試行回数を増やし、駒入れの成功率を上げている。
-  const optionPreset = { ...DEFAULT_SCHEDULER_OPTIONS('標準'), maxAttempts: 100 };
+  // 週29コマ（週30コマ枠の97%）と教員を共有する現実的な構成のため、既定の15秒より
+  // 実行時間を長めに確保し、駒入れの成功率を上げている。
+  const optionPreset = { ...DEFAULT_SCHEDULER_OPTIONS('標準'), maxSeconds: 30 };
 
   return {
     settings: {
@@ -170,7 +170,7 @@ export const buildMockProjectData = (): ProjectData => {
     meetings: [{
       id: generateId(),
       name: '職員会議',
-      day: 2, // 水曜日
+      day: 0, // 月曜日: 6限は全教員が拘束される職員会議とし、実質5時限までで授業を組む
       period: 6,
       teacherIds: teachers.map(t => t.id),
     }],

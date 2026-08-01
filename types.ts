@@ -80,7 +80,7 @@ export interface SchedulerOptions {
   name: string;
   avoidConsecutiveSameSubject: boolean; // 同じクラスで同じ科目を連続時限に置かない
   spreadEvenly: boolean;                // 同じ授業をなるべく曜日ごとに均等分散させる
-  maxAttempts: number;                  // 駒入れの試行回数（多いほど精度は上がるが遅くなる）
+  maxSeconds: number;                   // 駒入れの実行時間上限（秒）。この時間内で残り駒0になるまで繰り返す
 }
 
 export const DEFAULT_SCHEDULER_OPTIONS = (name = '標準'): SchedulerOptions => ({
@@ -88,7 +88,7 @@ export const DEFAULT_SCHEDULER_OPTIONS = (name = '標準'): SchedulerOptions => 
   name,
   avoidConsecutiveSameSubject: true,
   spreadEvenly: true,
-  maxAttempts: 25,
+  maxSeconds: 15,
 });
 
 export interface PrintSettings {

@@ -133,8 +133,8 @@ const App: React.FC = () => {
     }, 50);
   };
 
-  const handleChangeMaxAttempts = (maxAttempts: number) => {
-    setOptionPresets(prev => prev.map(o => (o.id === activeOptionId ? { ...o, maxAttempts } : o)));
+  const handleChangeMaxSeconds = (maxSeconds: number) => {
+    setOptionPresets(prev => prev.map(o => (o.id === activeOptionId ? { ...o, maxSeconds } : o)));
   };
 
   const currentData = (): ProjectData => ({
@@ -371,7 +371,7 @@ const App: React.FC = () => {
               settings={settings} classes={classes} teachers={teachers} subjects={subjects} rooms={rooms}
               lessons={lessons} placements={displayPlacements} setPlacements={setPlacements}
               onRunScheduler={handleRunScheduler} isRunning={isRunning} activeOption={activeOption}
-              onChangeMaxAttempts={handleChangeMaxAttempts}
+              onChangeMaxSeconds={handleChangeMaxSeconds}
               meetings={meetings}
               onUndo={undoPlacements} onRedo={redoPlacements} canUndo={canUndo} canRedo={canRedo}
               initialFocus={jumpFocus} onFocusHandled={() => setJumpFocus(null)}
@@ -383,7 +383,7 @@ const App: React.FC = () => {
               lessons={lessons} placements={displayPlacements} meetings={meetings}
               onOpenEntity={(viewBy, entityId) => { setJumpFocus({ viewBy, entityId }); setStep('timetable'); }}
               onRunScheduler={handleRunScheduler} isRunning={isRunning} activeOption={activeOption}
-              onChangeMaxAttempts={handleChangeMaxAttempts}
+              onChangeMaxSeconds={handleChangeMaxSeconds}
               focusTab={tileFocusTab} onFocusTabHandled={() => setTileFocusTab(null)}
             />
           )}
