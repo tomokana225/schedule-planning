@@ -18,6 +18,8 @@ export interface SchedulerContext {
 
 const lessonMap = (lessons: Lesson[]) => new Map(lessons.map(l => [l.id, l]));
 
+const now = () => (typeof performance !== 'undefined' ? performance.now() : Date.now());
+
 // Checks whether `lesson` can occupy [period, period+consecutive-1] on `day`,
 // given the placements already made (excluding any ids in `excludeIds`).
 export const isValidPlacement = (
@@ -236,16 +238,23 @@ const attempt = (ctx: SchedulerContext, keepConfirmed: Placement[]): RunResult =
 // 同時に重なっているマスは、正しい解決の組み合わせが爆発的に増えるため対象外のまま）。
 const REPAIR_CHAIN_DEPTH = 3;
 
+// Upper bound on how long a single repairRemainingOnce call may run, independent of
+// how much of the overall 実行時間 budget remains. Keeps the interleaved loop below
+// coming back around often enough to yield control (and report progress) even when
+// the chain search is grinding through a lot of unproductive candidates.
+const REPAIR_SLICE_MS = 300;
+
 // 全試行の中で最良だった結果に残った未配置授業だけを対象に、直接の空きコマ探索と、
 // 邪魔な駒を玉突きで動かす連鎖ローカルサーチで置き場所を探す。ランダム再試行を
 // 全体でやり直すのではなく、実際に残った少数の未配置だけに絞ることで、
 // 「残り駒0になるまで実行時間の設定に関わらず粘る」処理を、時間の設定自体を
 // 無意味にするほど重くせずに行える。
-const repairRemainingOnce = (ctx: SchedulerContext, result: RunResult): RunResult => {
+const repairRemainingOnce = (ctx: SchedulerContext, result: RunResult, deadline: number): RunResult => {
   const { settings, lessons } = ctx;
   const lessonById = lessonMap(lessons);
   const placements = [...result.placements];
   const stillUnplaced = new Map<string, number>();
+  const timeUp = () => now() > deadline;
 
   const allSlots = Array.from({ length: settings.days.length }, (_, day) => day)
     .flatMap(day => Array.from({ length: periodsForDay(settings, day) }, (_, idx) => ({ day, period: idx + 1 })));
@@ -279,7 +288,7 @@ const repairRemainingOnce = (ctx: SchedulerContext, result: RunResult): RunResul
     lesson: Lesson, day: number, period: number, depth: number,
     originalDay: number, originalPeriod: number, originalSpan: number,
   ): boolean => {
-    if (depth > REPAIR_CHAIN_DEPTH) return false;
+    if (depth > REPAIR_CHAIN_DEPTH || timeUp()) return false;
     const targetEnd = period + lesson.consecutive - 1;
     const blockers = placements.filter(p => {
       if (p.confirmed || p.day !== day) return false;
@@ -314,6 +323,7 @@ const repairRemainingOnce = (ctx: SchedulerContext, result: RunResult): RunResul
       s.day === originalDay && s.period <= originalPeriod + originalSpan - 1 && s.period + span - 1 >= originalPeriod;
 
     for (const s of shuffle(allSlots)) {
+      if (timeUp()) return false;
       if (overlapsOwnTarget(s, blockerLesson.consecutive) || conflictsWithOriginal(s, blockerLesson.consecutive)) continue;
       const directlyValid = isValidPlacement(ctx, placements, blockerLesson, s.day, s.period, new Set([blocker.id]));
       // If s isn't directly free, see whether *it* can be cleared the same way (one
@@ -330,10 +340,12 @@ const repairRemainingOnce = (ctx: SchedulerContext, result: RunResult): RunResul
     clearSlotFor(lesson, day, period, 1, day, period, lesson.consecutive);
 
   for (const { lessonId, count } of result.unplaced) {
+    if (timeUp()) { stillUnplaced.set(lessonId, count); continue; }
     const lesson = lessonById.get(lessonId);
     if (!lesson) continue;
     let remaining = count;
     for (let i = 0; i < count; i++) {
+      if (timeUp()) break;
       let placed = false;
       for (const slot of shuffle(allSlots)) {
         if (isValidPlacement(ctx, placements, lesson, slot.day, slot.period)) {
@@ -344,6 +356,7 @@ const repairRemainingOnce = (ctx: SchedulerContext, result: RunResult): RunResul
       }
       if (!placed) {
         for (const slot of shuffle(allSlots)) {
+          if (timeUp()) break;
           if (tryRepairAt(lesson, slot.day, slot.period)) {
             placements.push({ id: generateId(), lessonId, day: slot.day, period: slot.period, confirmed: false });
             placed = true;
@@ -378,15 +391,15 @@ const repairRemainingOnce = (ctx: SchedulerContext, result: RunResult): RunResul
   return repaired;
 };
 
-const now = () => (typeof performance !== 'undefined' ? performance.now() : Date.now());
-
 const totalUnplaced = (r: RunResult): number => r.unplaced.reduce((s, u) => s + u.count, 0);
 
-// Runs the auto-assignment (駒入れ), keeping any already-confirmed placements fixed,
+// Drives the auto-assignment (駒入れ), keeping any already-confirmed placements fixed,
 // and keeps trying randomized attempts within the configured time budget (実行時間、秒),
 // keeping whichever leaves the fewest lessons unplaced and stopping early the moment
 // one reaches 0 残り駒. The configured seconds is the actual, sole cap for this phase —
-// increasing it in the UI directly increases how long attempts keep running.
+// increasing it in the UI directly increases how long attempts keep running. Yields the
+// current best every time it genuinely improves, so a caller (sync or async) can observe
+// progress as it happens; the final `return` value is always the true end result.
 //
 // Each round does one fresh full random attempt, then (if time remains) one repair pass
 // against whichever result is currently best — rather than a fixed split where a whole
@@ -406,7 +419,7 @@ const totalUnplaced = (r: RunResult): number => r.unplaced.reduce((s, u) => s + 
 // Without this, every click was a gamble — a worse random attempt could overwrite an
 // already-good (or already-complete) schedule, which is what made "just keep clicking a
 // short run and stop when it looks good" feel more reliable than one longer run.
-export const runScheduler = (ctx: SchedulerContext, existingPlacements: Placement[]): RunResult => {
+function* runSchedulerSteps(ctx: SchedulerContext, existingPlacements: Placement[]): Generator<RunResult, RunResult, void> {
   const keepConfirmed = existingPlacements.filter(p => p.confirmed);
   const budgetMs = (ctx.options?.maxSeconds ?? 15) * 1000;
   const start = now();
@@ -414,17 +427,93 @@ export const runScheduler = (ctx: SchedulerContext, existingPlacements: Placemen
   let best: RunResult = { placements: existingPlacements, unplaced: summarizeUnplaced(ctx.lessons, existingPlacements) };
   if (totalUnplaced(best) === 0) return best;
 
+  // Yielding only on genuine improvement isn't enough on its own: long stretches
+  // where nothing improves (common once the search is close to its limit) would
+  // otherwise run the whole loop below to completion without ever handing control
+  // back to whoever is driving this generator. For the async driver that means the
+  // browser's event loop — and the UI it needs to paint a countdown or a live
+  // preview on — would never get a turn, even though this generator is technically
+  // yielding "sometimes". So also yield on a plain time tick regardless of whether
+  // `best` changed, purely to give the caller a chance to breathe.
+  let lastTick = now();
+  const tick = () => {
+    if (now() - lastTick > 50) {
+      lastTick = now();
+      return true;
+    }
+    return false;
+  };
+
   do {
     const result = attempt(ctx, keepConfirmed);
-    if (totalUnplaced(result) < totalUnplaced(best)) best = result;
-    if (totalUnplaced(best) === 0) break;
+    if (totalUnplaced(result) < totalUnplaced(best)) {
+      best = result;
+      yield best;
+      lastTick = now();
+    } else if (tick()) {
+      yield best;
+    }
+    if (totalUnplaced(best) === 0) return best;
 
     if (now() - start < budgetMs) {
-      const repaired = repairRemainingOnce(ctx, best);
-      if (totalUnplaced(repaired) < totalUnplaced(best)) best = repaired;
-      if (totalUnplaced(best) === 0) break;
+      // Cap each repair call to a short slice of its own, regardless of how much of
+      // the overall budget remains: on heavily-contested data the depth-3 chain
+      // search can in principle explore a very large number of candidate chains for
+      // a single stubborn lesson, and without its own bound that single call could
+      // run for the entire remaining budget (or, before this bound existed, even
+      // past it) with no chance for the interleaved loop above to come back around
+      // and yield — which is exactly what made the countdown/preview freeze solid
+      // instead of ticking down smoothly on harder data.
+      const repairDeadline = Math.min(start + budgetMs, now() + REPAIR_SLICE_MS);
+      const repaired = repairRemainingOnce(ctx, best, repairDeadline);
+      if (totalUnplaced(repaired) < totalUnplaced(best)) {
+        best = repaired;
+        yield best;
+        lastTick = now();
+      } else if (tick()) {
+        yield best;
+      }
+      if (totalUnplaced(best) === 0) return best;
     }
   } while (now() - start < budgetMs);
 
   return best;
+}
+
+// Synchronous entry point: runs the whole time budget in one tight loop with no
+// yielding back to the caller, exactly as before this function was split out.
+export const runScheduler = (ctx: SchedulerContext, existingPlacements: Placement[]): RunResult => {
+  const gen = runSchedulerSteps(ctx, existingPlacements);
+  let step = gen.next();
+  while (!step.done) step = gen.next();
+  return step.value;
+};
+
+// Async entry point for interactive callers: periodically yields control back to the
+// browser's event loop (so the UI stays responsive and can render a live countdown),
+// calling `onProgress` with the current best placements each time — so the timetable
+// grid can visibly update as the search finds better arrangements (and a countdown can
+// tick down smoothly even during stretches with no improvement), instead of freezing
+// for the whole budget and only then revealing a result.
+export const runSchedulerAsync = async (
+  ctx: SchedulerContext,
+  existingPlacements: Placement[],
+  onProgress?: (best: RunResult, elapsedMs: number, budgetMs: number) => void,
+): Promise<RunResult> => {
+  const start = now();
+  const budgetMs = (ctx.options?.maxSeconds ?? 15) * 1000;
+  const gen = runSchedulerSteps(ctx, existingPlacements);
+
+  let lastYield = now();
+  let step = gen.next();
+  while (!step.done) {
+    if (now() - lastYield > 80) {
+      onProgress?.(step.value, now() - start, budgetMs);
+      await new Promise<void>(resolve => setTimeout(resolve, 0));
+      lastYield = now();
+    }
+    step = gen.next();
+  }
+  onProgress?.(step.value, now() - start, budgetMs);
+  return step.value;
 };

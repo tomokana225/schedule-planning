@@ -25,7 +25,7 @@ import {
   ProjectData, SchedulerOptions, DEFAULT_SCHEDULER_OPTIONS, PrintSettings, DEFAULT_PRINT_SETTINGS,
   Meeting, ExamSession,
 } from './types';
-import { runScheduler } from './services/scheduler';
+import { runSchedulerAsync } from './services/scheduler';
 import { exportCsv, exportHtml, saveProjectJson, loadProjectJson, mergeProjectData } from './services/exportService';
 import { saveBackup } from './services/backupService';
 import { buildMockProjectData } from './services/mockData';
@@ -81,56 +81,42 @@ const App: React.FC = () => {
   const [bandPlacements, setBandPlacements] = useState<Placement[]>([]);
   const [bandWeekOffset, setBandWeekOffset] = useState(0);
   const [jumpFocus, setJumpFocus] = useState<{ viewBy: 'class' | 'teacher' | 'room'; entityId: string } | null>(null);
-  // 自動駒入れ中に少しずつ駒が埋まっていく様子を見せるための一時的なプレビュー状態。
-  // 一手戻し履歴には残さず、完了時に一度だけ本来の setPlacements で確定させる。
+  // 自動駒入れ中に、実際に見つかった改善のたびに駒が動いていく様子を見せるための
+  // 一時的なプレビュー状態。一手戻し履歴には残さず、完了時に一度だけ本来の
+  // setPlacements で確定させる。
   const [previewPlacements, setPreviewPlacements] = useState<Placement[] | null>(null);
+  const [runningSecondsLeft, setRunningSecondsLeft] = useState<number | null>(null);
   const [tileFocusTab, setTileFocusTab] = useState<TileTab | null>(null);
 
   const activeOption = optionPresets.find(o => o.id === activeOptionId) ?? optionPresets[0];
   const displayPlacements = previewPlacements ?? placements;
 
-  const handleRunScheduler = () => {
+  const handleRunScheduler = async () => {
     setIsRunning(true);
-    setTimeout(() => {
-      const result = runScheduler(
+    const budgetSeconds = activeOption.maxSeconds;
+    const startedAt = Date.now();
+    setRunningSecondsLeft(budgetSeconds);
+
+    const countdownTimer = window.setInterval(() => {
+      const elapsedSeconds = (Date.now() - startedAt) / 1000;
+      setRunningSecondsLeft(Math.max(0, Math.ceil(budgetSeconds - elapsedSeconds)));
+    }, 200);
+
+    try {
+      const result = await runSchedulerAsync(
         { settings, classes, teachers, subjects, rooms, lessons, options: activeOption, meetings },
         placements,
+        best => setPreviewPlacements(best.placements),
       );
-      const prevIds = new Set(placements.map(p => p.id));
-      const kept = result.placements.filter(p => prevIds.has(p.id));
-      const newOnes = result.placements
-        .filter(p => !prevIds.has(p.id))
-        .sort((a, b) => a.day - b.day || a.period - b.period);
-
-      const finish = () => {
-        setPlacements(result.placements);
-        setPreviewPlacements(null);
-        setIsRunning(false);
-        setStep('tiles');
-        setTileFocusTab('matrix');
-      };
-
-      if (newOnes.length === 0) {
-        finish();
-        return;
-      }
-
-      // コマが少しずつ配置されていく様子を視覚的に見せる（およそ30ステップで反映）
-      const totalSteps = 30;
-      const batchSize = Math.max(1, Math.ceil(newOnes.length / totalSteps));
-      setPreviewPlacements(kept);
-      let revealed = 0;
-      const revealStep = () => {
-        revealed += batchSize;
-        if (revealed >= newOnes.length) {
-          finish();
-          return;
-        }
-        setPreviewPlacements([...kept, ...newOnes.slice(0, revealed)]);
-        window.setTimeout(revealStep, 40);
-      };
-      window.setTimeout(revealStep, 40);
-    }, 50);
+      setPlacements(result.placements);
+    } finally {
+      window.clearInterval(countdownTimer);
+      setPreviewPlacements(null);
+      setRunningSecondsLeft(null);
+      setIsRunning(false);
+      setStep('tiles');
+      setTileFocusTab('matrix');
+    }
   };
 
   const handleChangeMaxSeconds = (maxSeconds: number) => {
@@ -370,7 +356,7 @@ const App: React.FC = () => {
             <TimetableGrid
               settings={settings} classes={classes} teachers={teachers} subjects={subjects} rooms={rooms}
               lessons={lessons} placements={displayPlacements} setPlacements={setPlacements}
-              onRunScheduler={handleRunScheduler} isRunning={isRunning} activeOption={activeOption}
+              onRunScheduler={handleRunScheduler} isRunning={isRunning} runningSecondsLeft={runningSecondsLeft} activeOption={activeOption}
               onChangeMaxSeconds={handleChangeMaxSeconds}
               meetings={meetings}
               onUndo={undoPlacements} onRedo={redoPlacements} canUndo={canUndo} canRedo={canRedo}
@@ -382,7 +368,7 @@ const App: React.FC = () => {
               settings={settings} classes={classes} teachers={teachers} rooms={rooms} subjects={subjects}
               lessons={lessons} placements={displayPlacements} setPlacements={setPlacements} meetings={meetings}
               onOpenEntity={(viewBy, entityId) => { setJumpFocus({ viewBy, entityId }); setStep('timetable'); }}
-              onRunScheduler={handleRunScheduler} isRunning={isRunning} activeOption={activeOption}
+              onRunScheduler={handleRunScheduler} isRunning={isRunning} runningSecondsLeft={runningSecondsLeft} activeOption={activeOption}
               onChangeMaxSeconds={handleChangeMaxSeconds}
               focusTab={tileFocusTab} onFocusTabHandled={() => setTileFocusTab(null)}
             />

@@ -26,6 +26,7 @@ interface Props {
   onOpenEntity: (viewBy: 'class' | 'teacher' | 'room', entityId: string) => void;
   onRunScheduler: () => void;
   isRunning: boolean;
+  runningSecondsLeft?: number | null;
   activeOption: SchedulerOptions;
   onChangeMaxSeconds: (maxSeconds: number) => void;
   focusTab?: TileTab | null;
@@ -44,7 +45,7 @@ const TABS: { key: TileTab; label: string; icon: React.ReactNode }[] = [
 
 export const TileView: React.FC<Props> = ({
   settings, classes, teachers, rooms, subjects, lessons, placements, setPlacements, meetings, onOpenEntity,
-  onRunScheduler, isRunning, activeOption, onChangeMaxSeconds, focusTab, onFocusTabHandled,
+  onRunScheduler, isRunning, runningSecondsLeft, activeOption, onChangeMaxSeconds, focusTab, onFocusTabHandled,
 }) => {
   const [tab, setTab] = useState<TileTab>('overview');
   const lessonById = new Map(lessons.map(l => [l.id, l]));
@@ -124,7 +125,8 @@ export const TileView: React.FC<Props> = ({
         「全クラス一覧」ではすべてのクラス・学年の時間割を並べて確認できます。「一括表」では縦に学年・クラス、
         横に曜日・時限を並べた一つの表ですべてのコマを確認でき、空きコマがあればエラーとして一覧表示されます。
         「先生一括表」では縦に先生、横に曜日・時限を並べた一つの表で全先生の時間割をまとめて確認できます。
-        この画面を見ながら「AIで自動駒入れ」を実行すると、コマが埋まっていく様子をそのまま確認できます。
+        この画面を見ながら「AIで自動駒入れ」を実行すると、ボタンに残り秒数が表示され、コマが実際に
+        動きながら埋まっていく様子をそのまま確認できます。
         先生・クラス・教室・科目タブでは、配置済みコマ数と週の埋まり具合を一覧できます。
         タイルをクリックすると詳細な時間割作成画面を開きます。
       </p>
@@ -162,7 +164,7 @@ export const TileView: React.FC<Props> = ({
             className="flex items-center gap-1.5 bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white px-4 py-2 rounded-lg text-sm font-medium shadow-md shadow-indigo-200"
           >
             {isRunning ? <RefreshCw size={16} className="animate-spin" /> : <Wand2 size={16} />}
-            <span>{isRunning ? '駒入れ中...' : 'AIで自動駒入れ'}</span>
+            <span>{isRunning ? `駒入れ中...${runningSecondsLeft != null ? `（残り${runningSecondsLeft}秒）` : ''}` : 'AIで自動駒入れ'}</span>
           </button>
         </div>
       </div>
