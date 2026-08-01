@@ -1,6 +1,7 @@
 import React, { useMemo } from 'react';
 import { CheckCircle2, XCircle } from 'lucide-react';
 import { SchoolClass, Teacher, Subject, Lesson, Placement, TimetableSettings, SUBJECT_COLOR_CLASSES } from '../types';
+import { periodsForDay } from '../utils';
 
 interface Props {
   settings: TimetableSettings;
@@ -28,7 +29,10 @@ export const AllClassesMatrix: React.FC<Props> = ({
   settings, classes, teachers, subjects, lessons, placements, onOpenClass,
 }) => {
   const lessonById = new Map(lessons.map(l => [l.id, l]));
-  const periods = Array.from({ length: settings.periodsPerDay }, (_, i) => i + 1);
+  // 曜日ごとに実際に存在する時限のリスト（例: 月曜だけ5時限までなど）
+  const periodsByDay = settings.days.map((_, day) =>
+    Array.from({ length: periodsForDay(settings, day) }, (_, i) => i + 1),
+  );
 
   const orderedClasses = useMemo(
     () => [...classes].sort((a, b) => (a.grade || '').localeCompare(b.grade || '', 'ja')),
@@ -48,7 +52,7 @@ export const AllClassesMatrix: React.FC<Props> = ({
   const gaps: GapEntry[] = [];
   for (const cls of orderedClasses) {
     for (let day = 0; day < settings.days.length; day++) {
-      for (const period of periods) {
+      for (const period of periodsByDay[day]) {
         if (!cellAt(cls.id, day, period)) {
           gaps.push({ classId: cls.id, className: cls.name, day, period });
         }
@@ -101,17 +105,17 @@ export const AllClassesMatrix: React.FC<Props> = ({
             <col style={{ width: '3.5rem' }} />
             <col style={{ width: '4.5rem' }} />
             {settings.days.flatMap((_, dayIdx) =>
-              periods.map(period => <col key={`col-${dayIdx}-${period}`} style={{ width: '2.75rem' }} />),
+              periodsByDay[dayIdx].map(period => <col key={`col-${dayIdx}-${period}`} style={{ width: '2.75rem' }} />),
             )}
           </colgroup>
           <thead>
             <tr>
               <th rowSpan={2} className="sticky left-0 top-0 z-20 bg-gray-100 border border-gray-200 px-2 py-1">学年</th>
               <th rowSpan={2} className="sticky left-14 top-0 z-20 bg-gray-100 border border-gray-200 px-2 py-1">クラス</th>
-              {settings.days.map(d => (
+              {settings.days.map((d, dayIdx) => (
                 <th
                   key={d}
-                  colSpan={settings.periodsPerDay}
+                  colSpan={periodsByDay[dayIdx].length}
                   className="sticky top-0 z-10 bg-gray-100 border border-gray-200 px-2 py-1 text-gray-600"
                 >
                   {d}
@@ -120,7 +124,7 @@ export const AllClassesMatrix: React.FC<Props> = ({
             </tr>
             <tr>
               {settings.days.map((d, dayIdx) =>
-                periods.map(period => (
+                periodsByDay[dayIdx].map(period => (
                   <th
                     key={`${dayIdx}-${period}`}
                     className={`sticky top-6 z-10 bg-gray-50 border border-gray-200 h-7 text-gray-400 font-normal ${
@@ -159,7 +163,7 @@ export const AllClassesMatrix: React.FC<Props> = ({
                     {cls.name}
                   </td>
                   {settings.days.map((_, day) =>
-                    periods.map(period => {
+                    periodsByDay[day].map(period => {
                       const cell = cellAt(cls.id, day, period);
                       if (cell && cell.placement.period !== period) return null; // covered by colSpan
                       if (!cell) {

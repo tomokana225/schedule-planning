@@ -13,14 +13,29 @@ export const SetupWizard: React.FC<Props> = ({ settings, onSave, onLoadMockData 
   const [dayCount, setDayCount] = useState(settings.days.length);
   const [periodsPerDay, setPeriodsPerDay] = useState(settings.periodsPerDay);
   const [lunchAfterPeriod, setLunchAfterPeriod] = useState(settings.lunchAfterPeriod ?? 4);
+  const [overrides, setOverrides] = useState<Record<number, number>>(settings.periodsPerDayOverrides ?? {});
 
   const allDayNames = ['月', '火', '水', '木', '金', '土', '日'];
+  const dayNames = allDayNames.slice(0, dayCount);
+
+  const setOverrideFor = (day: number, value: number) => {
+    setOverrides(prev => {
+      const next = { ...prev };
+      if (value === periodsPerDay) {
+        delete next[day];
+      } else {
+        next[day] = value;
+      }
+      return next;
+    });
+  };
 
   const handleSave = () => {
     onSave({
       schoolName,
-      days: allDayNames.slice(0, dayCount),
+      days: dayNames,
       periodsPerDay,
+      periodsPerDayOverrides: Object.keys(overrides).length > 0 ? overrides : undefined,
       lunchAfterPeriod,
     });
   };
@@ -70,6 +85,28 @@ export const SetupWizard: React.FC<Props> = ({ settings, onSave, onLoadMockData 
               onChange={e => setPeriodsPerDay(Number(e.target.value))}
               className="w-full px-3 py-2 rounded-lg border border-gray-200"
             />
+          </div>
+        </div>
+
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-1">曜日ごとの時限数（例外がある場合）</label>
+          <p className="text-xs text-gray-400 mb-2">「1日の時限数」と異なる曜日だけ変更できます（例: 月曜だけ5時限）。</p>
+          <div className="grid grid-cols-5 sm:grid-cols-7 gap-2">
+            {dayNames.map((name, day) => (
+              <div key={day} className="flex flex-col items-center">
+                <span className="text-xs text-gray-500 mb-1">{name}</span>
+                <input
+                  type="number"
+                  min={1}
+                  max={10}
+                  value={overrides[day] ?? periodsPerDay}
+                  onChange={e => setOverrideFor(day, Number(e.target.value))}
+                  className={`w-full px-2 py-1.5 text-center rounded-lg border ${
+                    day in overrides ? 'border-indigo-300 bg-indigo-50 text-indigo-700' : 'border-gray-200'
+                  }`}
+                />
+              </div>
+            ))}
           </div>
         </div>
 

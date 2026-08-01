@@ -61,6 +61,7 @@ const App: React.FC = () => {
     schoolName: '',
     days: DEFAULT_DAYS,
     periodsPerDay: 6,
+    periodsPerDayOverrides: { 0: 5 }, // 月曜だけ既定で5時限（6限なし）
     lunchAfterPeriod: 4,
   });
   const [classes, setClasses] = useState<SchoolClass[]>([]);

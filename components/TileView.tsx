@@ -5,6 +5,9 @@ import {
 } from '../types';
 import { AllClassesOverview } from './AllClassesOverview';
 import { AllClassesMatrix } from './AllClassesMatrix';
+import { periodsForDay, maxPeriodsAcrossDays } from '../utils';
+
+const NA = '__na__';
 
 export type TileTab = 'overview' | 'matrix' | 'teachers' | 'classes' | 'rooms' | 'subjects';
 
@@ -40,7 +43,8 @@ export const TileView: React.FC<Props> = ({
 }) => {
   const [tab, setTab] = useState<TileTab>('overview');
   const lessonById = new Map(lessons.map(l => [l.id, l]));
-  const totalSlots = settings.days.length * settings.periodsPerDay;
+  const maxPeriods = maxPeriodsAcrossDays(settings);
+  const totalSlots = settings.days.reduce((sum, _, day) => sum + periodsForDay(settings, day), 0);
 
   // 自動駒入れ完了後などに、外部から特定のタブ（一括表など）へジャンプさせる
   useEffect(() => {
@@ -51,7 +55,9 @@ export const TileView: React.FC<Props> = ({
   }, [focusTab]);
 
   const occupancyGrid = (matches: (lesson: Lesson) => boolean) => {
-    const grid = Array.from({ length: settings.days.length }, () => Array<string | null>(settings.periodsPerDay).fill(null));
+    const grid = Array.from({ length: settings.days.length }, (_, day) =>
+      Array.from({ length: maxPeriods }, (_, p) => (p >= periodsForDay(settings, day) ? NA : null)),
+    );
     let filled = 0;
     for (const p of placements) {
       const lesson = lessonById.get(p.lessonId);
@@ -59,7 +65,7 @@ export const TileView: React.FC<Props> = ({
       const subject = subjects.find(s => s.id === lesson.subjectId);
       for (let i = 0; i < lesson.consecutive; i++) {
         const period = p.period + i - 1;
-        if (period < settings.periodsPerDay && grid[p.day]) {
+        if (period < maxPeriods && grid[p.day] && grid[p.day][period] !== NA) {
           if (!grid[p.day][period]) filled++;
           grid[p.day][period] = subject?.color ?? 'blue';
         }
@@ -69,12 +75,14 @@ export const TileView: React.FC<Props> = ({
   };
 
   const renderMiniGrid = (grid: (string | null)[][]) => (
-    <div className="grid gap-0.5" style={{ gridTemplateColumns: `repeat(${settings.periodsPerDay}, minmax(0, 1fr))` }}>
+    <div className="grid gap-0.5" style={{ gridTemplateColumns: `repeat(${maxPeriods}, minmax(0, 1fr))` }}>
       {grid.flatMap((day, dayIdx) =>
         day.map((color, periodIdx) => (
           <div
             key={`${dayIdx}-${periodIdx}`}
-            className={`w-3 h-3 rounded-sm ${color ? SUBJECT_COLOR_CLASSES[color].split(' ')[0] : 'bg-gray-100'}`}
+            className={`w-3 h-3 rounded-sm ${
+              color === NA ? 'invisible' : color ? SUBJECT_COLOR_CLASSES[color].split(' ')[0] : 'bg-gray-100'
+            }`}
           />
         )),
       )}

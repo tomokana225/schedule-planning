@@ -1,7 +1,7 @@
 import React from 'react';
 import { Plus, Trash2 } from 'lucide-react';
 import { Meeting, Teacher, Room, TimetableSettings } from '../types';
-import { generateId } from '../utils';
+import { generateId, periodsForDay } from '../utils';
 import { MultiSelect } from './MultiSelect';
 
 interface Props {
@@ -22,7 +22,7 @@ export const MeetingEditor: React.FC<Props> = ({ meetings, setMeetings, teachers
       id: generateId(),
       name: `会議${prev.length + 1}`,
       day: 0,
-      period: settings.periodsPerDay,
+      period: periodsForDay(settings, 0),
       teacherIds: [],
       roomId: undefined,
     }]);
@@ -61,7 +61,10 @@ export const MeetingEditor: React.FC<Props> = ({ meetings, setMeetings, teachers
                 <td className="px-3 py-2">
                   <select
                     value={m.day}
-                    onChange={e => update(m.id, { day: Number(e.target.value) })}
+                    onChange={e => {
+                      const day = Number(e.target.value);
+                      update(m.id, { day, period: Math.min(m.period, periodsForDay(settings, day)) });
+                    }}
                     className="w-full px-1.5 py-1 rounded border border-gray-200 bg-white"
                   >
                     {settings.days.map((d, i) => <option key={i} value={i}>{d}</option>)}
@@ -73,7 +76,7 @@ export const MeetingEditor: React.FC<Props> = ({ meetings, setMeetings, teachers
                     onChange={e => update(m.id, { period: Number(e.target.value) })}
                     className="w-full px-1.5 py-1 rounded border border-gray-200 bg-white"
                   >
-                    {Array.from({ length: settings.periodsPerDay }, (_, i) => i + 1).map(p => (
+                    {Array.from({ length: periodsForDay(settings, m.day) }, (_, i) => i + 1).map(p => (
                       <option key={p} value={p}>{p}限</option>
                     ))}
                   </select>

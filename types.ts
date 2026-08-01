@@ -65,7 +65,8 @@ export interface Placement {
 export interface TimetableSettings {
   schoolName: string;
   days: string[];       // e.g. ['月','火','水','木','金','土']
-  periodsPerDay: number;
+  periodsPerDay: number; // 基本の1日の時限数
+  periodsPerDayOverrides?: Record<number, number>; // 曜日ごとの例外（曜日インデックス→時限数）。例: 月曜だけ5時限
   lunchAfterPeriod?: number; // 昼休みの位置（表示用の区切り線）
   bandEnabled?: boolean;     // 帯（スライド）時間割を使用するか
   bandTotalKoma?: number;    // 帯の総コマ数（週のコマ数より大きい値、例: 45）
