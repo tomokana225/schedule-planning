@@ -2,7 +2,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import {
   CalendarDays, Settings2, Users, ListChecks, Ban, Grid3x3, Sparkles, BarChart3,
   Download, Upload, Printer, FileSpreadsheet, FileCode2, GitMerge, Layers, FileQuestion, Users2, History, LayoutGrid,
-  FlaskConical,
+  FlaskConical, FileUp,
 } from 'lucide-react';
 import { SetupWizard } from './components/SetupWizard';
 import { MasterDataEditor } from './components/MasterDataEditor';
@@ -18,6 +18,8 @@ import { ExamTimetableEditor } from './components/ExamTimetableEditor';
 import { MeetingEditor } from './components/MeetingEditor';
 import { BackupPanel } from './components/BackupPanel';
 import { TileView } from './components/TileView';
+import { ExcelImportDialog } from './components/ExcelImportDialog';
+import { ImportResult } from './services/excelImportService';
 import {
   AppStep, SchoolClass, Teacher, Subject, Room, Lesson, Placement, TimetableSettings,
   ProjectData, SchedulerOptions, DEFAULT_SCHEDULER_OPTIONS, PrintSettings, DEFAULT_PRINT_SETTINGS,
@@ -48,6 +50,7 @@ const App: React.FC = () => {
   const [isAIOpen, setIsAIOpen] = useState(false);
   const [isPrintOpen, setIsPrintOpen] = useState(false);
   const [isMergeOpen, setIsMergeOpen] = useState(false);
+  const [isExcelImportOpen, setIsExcelImportOpen] = useState(false);
   const [isBackupOpen, setIsBackupOpen] = useState(false);
   const [isRunning, setIsRunning] = useState(false);
   const [backupEnabled, setBackupEnabled] = useState(false);
@@ -125,6 +128,15 @@ const App: React.FC = () => {
     if (hasExistingData && !window.confirm('サンプルデータを読み込むと、現在のデータは上書きされます。よろしいですか？')) return;
     applyProjectData(buildMockProjectData());
     setStep('timetable');
+  };
+
+  const handleExcelImport = (result: ImportResult) => {
+    setClasses(result.classes);
+    setTeachers(result.teachers);
+    setSubjects(result.subjects);
+    setLessons(result.lessons);
+    resetPlacements([]);
+    setStep('lessons');
   };
 
   const handleMerge = (incoming: ProjectData) => {
@@ -235,6 +247,13 @@ const App: React.FC = () => {
               className="p-2 text-gray-500 hover:text-indigo-600 hover:bg-gray-100 rounded-lg transition"
             >
               <GitMerge size={18} />
+            </button>
+            <button
+              onClick={() => setIsExcelImportOpen(true)}
+              title="Excelから読み込む（統合版簡単設定）"
+              className="p-2 text-gray-500 hover:text-indigo-600 hover:bg-gray-100 rounded-lg transition"
+            >
+              <FileUp size={18} />
             </button>
             <button
               onClick={() => saveProjectJson(currentData())}
@@ -357,6 +376,7 @@ const App: React.FC = () => {
         setPrintSettings={setPrintSettings}
       />
       <MergeDataDialog isOpen={isMergeOpen} onClose={() => setIsMergeOpen(false)} onMerge={handleMerge} />
+      <ExcelImportDialog isOpen={isExcelImportOpen} onClose={() => setIsExcelImportOpen(false)} onApply={handleExcelImport} />
       <BackupPanel
         isOpen={isBackupOpen}
         onClose={() => setIsBackupOpen(false)}
