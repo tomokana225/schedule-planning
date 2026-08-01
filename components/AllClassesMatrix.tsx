@@ -1,6 +1,6 @@
 import React, { useMemo } from 'react';
 import { CheckCircle2, XCircle } from 'lucide-react';
-import { SchoolClass, Teacher, Subject, Lesson, Placement, TimetableSettings, SUBJECT_COLOR_CLASSES } from '../types';
+import { SchoolClass, Teacher, Subject, Lesson, Placement, Meeting, TimetableSettings, SUBJECT_COLOR_CLASSES } from '../types';
 import { periodsForDay } from '../utils';
 
 interface Props {
@@ -10,6 +10,7 @@ interface Props {
   subjects: Subject[];
   lessons: Lesson[];
   placements: Placement[];
+  meetings: Meeting[];
   onOpenClass: (classId: string) => void;
 }
 
@@ -26,7 +27,7 @@ interface GapEntry {
 // assumes every period should be filled), with a pass/fail summary listing
 // exactly which class/day/period slots are still open.
 export const AllClassesMatrix: React.FC<Props> = ({
-  settings, classes, teachers, subjects, lessons, placements, onOpenClass,
+  settings, classes, teachers, subjects, lessons, placements, meetings, onOpenClass,
 }) => {
   const lessonById = new Map(lessons.map(l => [l.id, l]));
   // 曜日ごとに実際に存在する時限のリスト（例: 月曜だけ5時限までなど）
@@ -38,6 +39,22 @@ export const AllClassesMatrix: React.FC<Props> = ({
     () => [...classes].sort((a, b) => (a.grade || '').localeCompare(b.grade || '', 'ja')),
     [classes],
   );
+
+  // クラスが受け持つ全先生（そのクラスの授業に登場する先生）を求めておき、その全員が
+  // 会議で拘束されている枠は「空きコマ」ではなく会議中として扱う（誰も授業できない）。
+  const classTeacherIds = new Map<string, Set<string>>();
+  for (const l of lessons) {
+    for (const classId of l.classIds) {
+      if (!classTeacherIds.has(classId)) classTeacherIds.set(classId, new Set());
+      const set = classTeacherIds.get(classId)!;
+      for (const t of l.teacherIds) set.add(t);
+    }
+  }
+  const meetingBlockingClass = (classId: string, day: number, period: number): Meeting | undefined => {
+    const teacherIds = classTeacherIds.get(classId);
+    if (!teacherIds || teacherIds.size === 0) return undefined;
+    return meetings.find(m => m.day === day && m.period === period && [...teacherIds].every(t => m.teacherIds.includes(t)));
+  };
 
   const cellAt = (classId: string, day: number, period: number): { lesson: Lesson; placement: Placement } | null => {
     for (const p of placements) {
@@ -53,7 +70,7 @@ export const AllClassesMatrix: React.FC<Props> = ({
   for (const cls of orderedClasses) {
     for (let day = 0; day < settings.days.length; day++) {
       for (const period of periodsByDay[day]) {
-        if (!cellAt(cls.id, day, period)) {
+        if (!cellAt(cls.id, day, period) && !meetingBlockingClass(cls.id, day, period)) {
           gaps.push({ classId: cls.id, className: cls.name, day, period });
         }
       }
@@ -167,6 +184,18 @@ export const AllClassesMatrix: React.FC<Props> = ({
                       const cell = cellAt(cls.id, day, period);
                       if (cell && cell.placement.period !== period) return null; // covered by colSpan
                       if (!cell) {
+                        const meeting = meetingBlockingClass(cls.id, day, period);
+                        if (meeting) {
+                          return (
+                            <td
+                              key={`${day}-${period}`}
+                              className="border border-gray-200 bg-slate-200 text-slate-500 text-center align-middle h-11 overflow-hidden"
+                              title={`会議: ${meeting.name}`}
+                            >
+                              <div className="font-semibold leading-tight truncate px-0.5">{meeting.name}</div>
+                            </td>
+                          );
+                        }
                         return (
                           <td
                             key={`${day}-${period}`}

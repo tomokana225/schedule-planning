@@ -218,11 +218,93 @@ const attempt = (ctx: SchedulerContext, keepConfirmed: Placement[]): RunResult =
   };
 };
 
+// 全試行の中で最良だった結果に残った未配置授業だけを対象に、直接の空きコマ探索と、
+// 1つだけ既存の駒をどかす簡易ローカルサーチで置き場所を探す。ランダム再試行を
+// 全体でやり直すのではなく、実際に残った少数の未配置だけに絞ることで、
+// 「残り駒0になるまで試行回数の設定に関わらず粘る」処理を、試行回数の設定自体を
+// 無意味にするほど重くせずに行える。
+const REPAIR_ALL_TIME_BUDGET_MS = 10000;
+const REPAIR_ROUNDS = 30;
+
+const repairRemainingOnce = (ctx: SchedulerContext, result: RunResult): RunResult => {
+  const { settings, lessons } = ctx;
+  const lessonById = lessonMap(lessons);
+  const placements = [...result.placements];
+  const stillUnplaced = new Map<string, number>();
+
+  const allSlots = Array.from({ length: settings.days.length }, (_, day) => day)
+    .flatMap(day => Array.from({ length: periodsForDay(settings, day) }, (_, idx) => ({ day, period: idx + 1 })));
+
+  const tryRepairAt = (lesson: Lesson, day: number, period: number): boolean => {
+    const targetEnd = period + lesson.consecutive - 1;
+    const blockers = placements.filter(p => {
+      if (p.confirmed || p.day !== day) return false;
+      const l = lessonById.get(p.lessonId);
+      if (!l) return false;
+      const otherEnd = p.period + l.consecutive - 1;
+      if (period > otherEnd || p.period > targetEnd) return false; // no overlap
+      return l.classIds.some(c => lesson.classIds.includes(c))
+        || l.teacherIds.some(t => lesson.teacherIds.includes(t))
+        || l.roomIds.some(r => lesson.roomIds.includes(r));
+    });
+    if (blockers.length !== 1) return false; // only the simple single-blocker case is worth the risk
+    const blocker = blockers[0];
+    const blockerLesson = lessonById.get(blocker.lessonId);
+    if (!blockerLesson) return false;
+    const exclude = new Set([blocker.id]);
+    const altSlot = shuffle(allSlots).find(s =>
+      !(s.day === day && s.period <= targetEnd && s.period + blockerLesson.consecutive - 1 >= period)
+      && isValidPlacement(ctx, placements, blockerLesson, s.day, s.period, exclude),
+    );
+    if (!altSlot) return false;
+    const idx = placements.findIndex(p => p.id === blocker.id);
+    placements[idx] = { ...blocker, day: altSlot.day, period: altSlot.period };
+    return true;
+  };
+
+  for (const { lessonId, count } of result.unplaced) {
+    const lesson = lessonById.get(lessonId);
+    if (!lesson) continue;
+    let remaining = count;
+    for (let i = 0; i < count; i++) {
+      let placed = false;
+      for (const slot of shuffle(allSlots)) {
+        if (isValidPlacement(ctx, placements, lesson, slot.day, slot.period)) {
+          placements.push({ id: generateId(), lessonId, day: slot.day, period: slot.period, confirmed: false });
+          placed = true;
+          break;
+        }
+      }
+      if (!placed) {
+        for (const slot of shuffle(allSlots)) {
+          if (tryRepairAt(lesson, slot.day, slot.period)) {
+            placements.push({ id: generateId(), lessonId, day: slot.day, period: slot.period, confirmed: false });
+            placed = true;
+            break;
+          }
+        }
+      }
+      if (placed) remaining--;
+    }
+    if (remaining > 0) stillUnplaced.set(lessonId, remaining);
+  }
+
+  return {
+    placements,
+    unplaced: Array.from(stillUnplaced.entries()).map(([lessonId, count]) => ({ lessonId, count })),
+  };
+};
+
 // Runs the auto-assignment (駒入れ), keeping any already-confirmed placements fixed,
 // and tries up to 試行回数 (maxAttempts) randomized attempts, keeping whichever leaves
 // the fewest lessons unplaced and stopping early the moment one reaches 0 残り駒. The
-// configured count is the actual, sole cap — increasing it in the UI directly increases
-// how many attempts run (and how long it can take), so it always has a visible effect.
+// configured count is the actual, sole cap for this phase — increasing it in the UI
+// directly increases how many attempts run (and how long it can take).
+//
+// If the best attempt still has leftovers, a second phase repeatedly tries to place
+// just those remaining lessons (direct search + single-blocker local repair) against
+// the best full schedule found — bounded by its own time budget — so 残り駒 keeps
+// shrinking toward 0 for every teacher/class without redoing the whole random search.
 export const runScheduler = (ctx: SchedulerContext, existingPlacements: Placement[]): RunResult => {
   const keepConfirmed = existingPlacements.filter(p => p.confirmed);
   const attempts = ctx.options?.maxAttempts ?? 25;
@@ -234,6 +316,20 @@ export const runScheduler = (ctx: SchedulerContext, existingPlacements: Placemen
     if (!best || unplacedTotal < best.unplaced.reduce((s, u) => s + u.count, 0)) {
       best = result;
       if (unplacedTotal === 0) break;
+    }
+  }
+
+  let bestUnplaced = best!.unplaced.reduce((s, u) => s + u.count, 0);
+  if (bestUnplaced > 0) {
+    const now = () => (typeof performance !== 'undefined' ? performance.now() : Date.now());
+    const start = now();
+    for (let round = 0; round < REPAIR_ROUNDS && bestUnplaced > 0 && now() - start < REPAIR_ALL_TIME_BUDGET_MS; round++) {
+      const repaired = repairRemainingOnce(ctx, best!);
+      const repairedUnplaced = repaired.unplaced.reduce((s, u) => s + u.count, 0);
+      if (repairedUnplaced < bestUnplaced) {
+        best = repaired;
+        bestUnplaced = repairedUnplaced;
+      }
     }
   }
 

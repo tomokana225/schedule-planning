@@ -1,7 +1,8 @@
 import React, { useEffect, useState } from 'react';
 import { Users, GraduationCap, DoorOpen, BookOpen, Table2, TableProperties, Wand2, RefreshCw } from 'lucide-react';
 import {
-  SchoolClass, Teacher, Room, Subject, Lesson, Placement, TimetableSettings, SchedulerOptions, SUBJECT_COLOR_CLASSES,
+  SchoolClass, Teacher, Room, Subject, Lesson, Placement, TimetableSettings, SchedulerOptions, Meeting,
+  SUBJECT_COLOR_CLASSES,
 } from '../types';
 import { AllClassesOverview } from './AllClassesOverview';
 import { AllClassesMatrix } from './AllClassesMatrix';
@@ -19,6 +20,7 @@ interface Props {
   subjects: Subject[];
   lessons: Lesson[];
   placements: Placement[];
+  meetings: Meeting[];
   onOpenEntity: (viewBy: 'class' | 'teacher' | 'room', entityId: string) => void;
   onRunScheduler: () => void;
   isRunning: boolean;
@@ -38,7 +40,7 @@ const TABS: { key: TileTab; label: string; icon: React.ReactNode }[] = [
 ];
 
 export const TileView: React.FC<Props> = ({
-  settings, classes, teachers, rooms, subjects, lessons, placements, onOpenEntity,
+  settings, classes, teachers, rooms, subjects, lessons, placements, meetings, onOpenEntity,
   onRunScheduler, isRunning, activeOption, onChangeMaxAttempts, focusTab, onFocusTabHandled,
 }) => {
   const [tab, setTab] = useState<TileTab>('overview');
@@ -165,14 +167,14 @@ export const TileView: React.FC<Props> = ({
         {tab === 'overview' && (
           <AllClassesOverview
             settings={settings} classes={classes} teachers={teachers} subjects={subjects}
-            lessons={lessons} placements={placements}
+            lessons={lessons} placements={placements} meetings={meetings}
             onOpenClass={classId => onOpenEntity('class', classId)}
           />
         )}
         {tab === 'matrix' && (
           <AllClassesMatrix
             settings={settings} classes={classes} teachers={teachers} subjects={subjects}
-            lessons={lessons} placements={placements}
+            lessons={lessons} placements={placements} meetings={meetings}
             onOpenClass={classId => onOpenEntity('class', classId)}
           />
         )}
