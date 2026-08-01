@@ -22,6 +22,7 @@ interface Props {
   onRunScheduler: () => void;
   isRunning: boolean;
   activeOption: SchedulerOptions;
+  onChangeMaxAttempts: (maxAttempts: number) => void;
   meetings: Meeting[];
   onUndo: () => void;
   onRedo: () => void;
@@ -53,7 +54,8 @@ export const computeUnplaced = (lessons: Lesson[], placements: Placement[]) => {
 };
 
 export const TimetableGrid: React.FC<Props> = ({
-  settings, classes, teachers, subjects, rooms, lessons, placements, setPlacements, onRunScheduler, isRunning, activeOption, meetings,
+  settings, classes, teachers, subjects, rooms, lessons, placements, setPlacements, onRunScheduler, isRunning, activeOption,
+  onChangeMaxAttempts, meetings,
   onUndo, onRedo, canUndo, canRedo, initialFocus, onFocusHandled,
 }) => {
   const [viewBy, setViewBy] = useState<ViewBy>('class');
@@ -148,6 +150,49 @@ export const TimetableGrid: React.FC<Props> = ({
     return isValidPlacement(ctx, placements, lesson, day, period, excludeIds);
   };
 
+  // What would happen if the currently-dragged item were dropped on (day, period)?
+  // Returns null when the drop would be invalid (conflict, confirmed lock, etc.) —
+  // shared by both the live drag-over highlight and the actual drop handler so the
+  // two never disagree about which cells are droppable.
+  type DropPlan =
+    | { kind: 'place'; lessonId: string; day: number; period: number }
+    | { kind: 'move'; placementId: string; day: number; period: number }
+    | { kind: 'swap'; aId: string; bId: string };
+
+  const computeDropPlan = (day: number, period: number): DropPlan | null => {
+    if (!dragPayload) return null;
+    const targetOccupant = cellAt(day, period);
+
+    if (dragPayload.kind === 'new') {
+      const lesson = lessonById.get(dragPayload.id);
+      if (!lesson) return null;
+      if (targetOccupant) return null;
+      if (!tryPlace(lesson, day, period, new Set())) return null;
+      return { kind: 'place', lessonId: lesson.id, day, period };
+    }
+
+    const source = placements.find(p => p.id === dragPayload.id);
+    if (!source || source.confirmed) return null;
+    const sourceLesson = lessonById.get(source.lessonId);
+    if (!sourceLesson) return null;
+
+    if (!targetOccupant) {
+      const exclude = new Set([source.id]);
+      if (!tryPlace(sourceLesson, day, period, exclude)) return null;
+      return { kind: 'move', placementId: source.id, day, period };
+    }
+
+    if (targetOccupant.id === source.id) return null;
+    if (targetOccupant.confirmed) return null;
+    const targetLesson = lessonById.get(targetOccupant.lessonId);
+    if (!targetLesson) return null;
+    const exclude = new Set([source.id, targetOccupant.id]);
+    const sourceCanGoToTarget = tryPlace(sourceLesson, targetOccupant.day, targetOccupant.period, exclude);
+    const targetCanGoToSource = tryPlace(targetLesson, source.day, source.period, exclude);
+    if (!sourceCanGoToTarget || !targetCanGoToSource) return null;
+    return { kind: 'swap', aId: source.id, bId: targetOccupant.id };
+  };
+
   const labelForPlacement = (p: Placement): string => {
     const l = lessonById.get(p.lessonId);
     if (!l) return '?';
@@ -191,45 +236,24 @@ export const TimetableGrid: React.FC<Props> = ({
   };
 
   const handleDropOnCell = (day: number, period: number) => {
-    if (!dragPayload) return;
-    const targetOccupant = cellAt(day, period);
+    const plan = computeDropPlan(day, period);
+    setDragPayload(null);
+    if (!plan) return;
 
-    if (dragPayload.kind === 'new') {
-      const lesson = lessonById.get(dragPayload.id);
-      if (!lesson) return;
-      if (targetOccupant) return; // don't drop new lesson onto occupied cell
-      if (!tryPlace(lesson, day, period, new Set())) return;
-      setPlacements(prev => [...prev, { id: generateId(), lessonId: lesson.id, day, period, confirmed: false }]);
-      setDragPayload(null);
-      return;
-    }
-
-    // dragging an existing placement
-    const source = placements.find(p => p.id === dragPayload.id);
-    if (!source || source.confirmed) { setDragPayload(null); return; }
-    const sourceLesson = lessonById.get(source.lessonId);
-    if (!sourceLesson) { setDragPayload(null); return; }
-
-    if (!targetOccupant) {
-      const exclude = new Set([source.id]);
-      if (!tryPlace(sourceLesson, day, period, exclude)) { setDragPayload(null); return; }
-      setPlacements(prev => prev.map(p => p.id === source.id ? { ...p, day, period } : p));
+    if (plan.kind === 'place') {
+      setPlacements(prev => [...prev, { id: generateId(), lessonId: plan.lessonId, day: plan.day, period: plan.period, confirmed: false }]);
+    } else if (plan.kind === 'move') {
+      setPlacements(prev => prev.map(p => p.id === plan.placementId ? { ...p, day: plan.day, period: plan.period } : p));
     } else {
-      if (targetOccupant.id === source.id) { setDragPayload(null); return; }
-      if (targetOccupant.confirmed) { setDragPayload(null); return; }
-      const targetLesson = lessonById.get(targetOccupant.lessonId);
-      if (!targetLesson) { setDragPayload(null); return; }
-      const exclude = new Set([source.id, targetOccupant.id]);
-      const sourceCanGoToTarget = tryPlace(sourceLesson, targetOccupant.day, targetOccupant.period, exclude);
-      const targetCanGoToSource = tryPlace(targetLesson, source.day, source.period, exclude);
-      if (!sourceCanGoToTarget || !targetCanGoToSource) { setDragPayload(null); return; }
+      const a = placements.find(p => p.id === plan.aId);
+      const b = placements.find(p => p.id === plan.bId);
+      if (!a || !b) return;
       setPlacements(prev => prev.map(p => {
-        if (p.id === source.id) return { ...p, day: targetOccupant.day, period: targetOccupant.period };
-        if (p.id === targetOccupant.id) return { ...p, day: source.day, period: source.period };
+        if (p.id === a.id) return { ...p, day: b.day, period: b.period };
+        if (p.id === b.id) return { ...p, day: a.day, period: a.period };
         return p;
       }));
     }
-    setDragPayload(null);
   };
 
   const toggleConfirm = (placementId: string) => {
@@ -244,6 +268,9 @@ export const TimetableGrid: React.FC<Props> = ({
 
   return (
     <div className="flex flex-col h-full gap-3" onClick={() => { setMenu(null); setSuggestPanel(null); }}>
+      <p className="text-xs text-gray-500 no-print">
+        駒をドラッグすると、移動しても競合しないマス（配置・入れ替え先）が緑色でハイライトされます。
+      </p>
       <div className="flex items-center justify-between flex-wrap gap-2 no-print">
         <div className="flex items-center gap-2">
           <div className="flex bg-gray-100 rounded-lg p-1">
@@ -284,6 +311,18 @@ export const TimetableGrid: React.FC<Props> = ({
               <Redo2 size={16} />
             </button>
           </div>
+          <label className="flex items-center gap-1.5 text-xs text-gray-500" title="残り駒が0になるまで試行を重ねる際の最低保証回数（それでも0にならない場合は安全上限まで追加で試行します）">
+            <span>試行回数</span>
+            <input
+              type="number"
+              min={1}
+              max={200}
+              value={activeOption.maxAttempts}
+              onChange={e => onChangeMaxAttempts(Math.max(1, Number(e.target.value) || 1))}
+              disabled={isRunning}
+              className="w-16 px-2 py-1.5 rounded-lg border border-gray-200 bg-white text-gray-700 disabled:opacity-50"
+            />
+          </label>
           <button
             onClick={onRunScheduler}
             disabled={isRunning}
@@ -322,6 +361,7 @@ export const TimetableGrid: React.FC<Props> = ({
                         const lesson = placement ? lessonById.get(placement.lessonId) : null;
                         const span = lesson?.consecutive ?? 1;
                         const meeting = !placement ? meetingAt(day, period) : undefined;
+                        const canDrop = dragPayload ? !!computeDropPlan(day, period) : false;
                         return (
                           <td key={day} className="p-0.5 align-top" rowSpan={placement ? span : 1}>
                             <div
@@ -335,14 +375,17 @@ export const TimetableGrid: React.FC<Props> = ({
                               }}
                               draggable={!!placement && !placement.confirmed}
                               onDragStart={() => placement && setDragPayload({ kind: 'placement', id: placement.id })}
-                              title={meeting ? `会議: ${meeting.name}` : undefined}
-                              className={`w-24 rounded-md border text-[11px] leading-tight flex flex-col items-center justify-center text-center px-1 select-none ${
+                              onDragEnd={() => setDragPayload(null)}
+                              title={meeting ? `会議: ${meeting.name}` : canDrop ? 'ここに移動できます' : undefined}
+                              className={`w-24 rounded-md border text-[11px] leading-tight flex flex-col items-center justify-center text-center px-1 select-none transition-colors ${
                                 span === 2 ? 'h-[4.75rem]' : 'h-11'
                               } ${
                                 lesson
-                                  ? `${SUBJECT_COLOR_CLASSES[label(lesson).color]} ${placement?.confirmed ? 'ring-2 ring-offset-1 ring-gray-500' : 'cursor-move'}`
+                                  ? `${SUBJECT_COLOR_CLASSES[label(lesson).color]} ${placement?.confirmed ? 'ring-2 ring-offset-1 ring-gray-500' : 'cursor-move'} ${canDrop ? 'ring-2 ring-offset-1 ring-green-500' : ''}`
                                   : meeting
                                   ? 'bg-slate-200 border-slate-300 text-slate-500'
+                                  : canDrop
+                                  ? 'bg-green-100 border-green-400 border-solid text-green-600'
                                   : 'bg-gray-50 border-dashed border-gray-200 text-gray-300'
                               }`}
                             >
@@ -384,6 +427,7 @@ export const TimetableGrid: React.FC<Props> = ({
                   key={`${lesson.id}-${i}`}
                   draggable
                   onDragStart={() => setDragPayload({ kind: 'new', id: lesson.id })}
+                  onDragEnd={() => setDragPayload(null)}
                   className={`relative px-2 py-1.5 rounded-md border text-xs cursor-move ${SUBJECT_COLOR_CLASSES[info.color]}`}
                 >
                   <div className="flex items-start justify-between gap-1">

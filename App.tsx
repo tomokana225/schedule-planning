@@ -95,6 +95,10 @@ const App: React.FC = () => {
     }, 50);
   };
 
+  const handleChangeMaxAttempts = (maxAttempts: number) => {
+    setOptionPresets(prev => prev.map(o => (o.id === activeOptionId ? { ...o, maxAttempts } : o)));
+  };
+
   const currentData = (): ProjectData => ({
     settings, classes, teachers, subjects, rooms, lessons, placements, optionPresets, activeOptionId,
     meetings, examSessions, bandPlacements, bandWeekOffset,
@@ -329,6 +333,7 @@ const App: React.FC = () => {
               settings={settings} classes={classes} teachers={teachers} subjects={subjects} rooms={rooms}
               lessons={lessons} placements={placements} setPlacements={setPlacements}
               onRunScheduler={handleRunScheduler} isRunning={isRunning} activeOption={activeOption}
+              onChangeMaxAttempts={handleChangeMaxAttempts}
               meetings={meetings}
               onUndo={undoPlacements} onRedo={redoPlacements} canUndo={canUndo} canRedo={canRedo}
               initialFocus={jumpFocus} onFocusHandled={() => setJumpFocus(null)}
