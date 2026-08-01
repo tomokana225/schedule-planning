@@ -1,5 +1,5 @@
 {
-  "name": "optiplan-ai",
+  "name": "schedule-planning",
   "compatibility_date": "2024-11-28",
   "main": "src/worker.ts",
   "assets": {
