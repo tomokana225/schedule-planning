@@ -1,10 +1,11 @@
 import React, { useState } from 'react';
-import { Users, GraduationCap, DoorOpen, BookOpen } from 'lucide-react';
+import { Users, GraduationCap, DoorOpen, BookOpen, Table2 } from 'lucide-react';
 import {
   SchoolClass, Teacher, Room, Subject, Lesson, Placement, TimetableSettings, SUBJECT_COLOR_CLASSES,
 } from '../types';
+import { AllClassesOverview } from './AllClassesOverview';
 
-type TileTab = 'teachers' | 'classes' | 'rooms' | 'subjects';
+type TileTab = 'overview' | 'teachers' | 'classes' | 'rooms' | 'subjects';
 
 interface Props {
   settings: TimetableSettings;
@@ -18,6 +19,7 @@ interface Props {
 }
 
 const TABS: { key: TileTab; label: string; icon: React.ReactNode }[] = [
+  { key: 'overview', label: '全クラス一覧', icon: <Table2 size={16} /> },
   { key: 'teachers', label: '先生', icon: <Users size={16} /> },
   { key: 'classes', label: 'クラス', icon: <GraduationCap size={16} /> },
   { key: 'rooms', label: '教室', icon: <DoorOpen size={16} /> },
@@ -25,7 +27,7 @@ const TABS: { key: TileTab; label: string; icon: React.ReactNode }[] = [
 ];
 
 export const TileView: React.FC<Props> = ({ settings, classes, teachers, rooms, subjects, lessons, placements, onOpenEntity }) => {
-  const [tab, setTab] = useState<TileTab>('teachers');
+  const [tab, setTab] = useState<TileTab>('overview');
   const lessonById = new Map(lessons.map(l => [l.id, l]));
   const totalSlots = settings.days.length * settings.periodsPerDay;
 
@@ -87,7 +89,8 @@ export const TileView: React.FC<Props> = ({ settings, classes, teachers, rooms, 
   return (
     <div className="flex flex-col h-full">
       <p className="text-xs text-gray-500 mb-3">
-        先生・クラス・教室・科目ごとに、配置済みコマ数と週の埋まり具合を一覧できます。タイルをクリックすると詳細な時間割作成画面を開きます。
+        「全クラス一覧」ではすべてのクラス・学年の時間割を並べて確認できます。先生・クラス・教室・科目タブでは、
+        配置済みコマ数と週の埋まり具合を一覧できます。タイルをクリックすると詳細な時間割作成画面を開きます。
       </p>
       <div className="flex items-center space-x-1 bg-gray-100 rounded-lg p-1 w-fit mb-4">
         {TABS.map(t => (
@@ -105,6 +108,13 @@ export const TileView: React.FC<Props> = ({ settings, classes, teachers, rooms, 
       </div>
 
       <div className="flex-1 overflow-auto">
+        {tab === 'overview' && (
+          <AllClassesOverview
+            settings={settings} classes={classes} teachers={teachers} subjects={subjects}
+            lessons={lessons} placements={placements}
+            onOpenClass={classId => onOpenEntity('class', classId)}
+          />
+        )}
         {tab === 'teachers' && renderEntityTiles(teachers, (id, l) => l.teacherIds.includes(id), 'teacher')}
         {tab === 'classes' && renderEntityTiles(classes, (id, l) => l.classIds.includes(id), 'class')}
         {tab === 'rooms' && renderEntityTiles(rooms, (id, l) => l.roomIds.includes(id), 'room')}
