@@ -1,13 +1,14 @@
 import React, { useState } from 'react';
-import { CalendarDays } from 'lucide-react';
+import { CalendarDays, FlaskConical } from 'lucide-react';
 import { TimetableSettings } from '../types';
 
 interface Props {
   settings: TimetableSettings;
   onSave: (settings: TimetableSettings) => void;
+  onLoadMockData: () => void;
 }
 
-export const SetupWizard: React.FC<Props> = ({ settings, onSave }) => {
+export const SetupWizard: React.FC<Props> = ({ settings, onSave, onLoadMockData }) => {
   const [schoolName, setSchoolName] = useState(settings.schoolName);
   const [dayCount, setDayCount] = useState(settings.days.length);
   const [periodsPerDay, setPeriodsPerDay] = useState(settings.periodsPerDay);
@@ -90,6 +91,14 @@ export const SetupWizard: React.FC<Props> = ({ settings, onSave }) => {
         className="mt-8 w-full bg-indigo-600 hover:bg-indigo-700 text-white font-medium py-2.5 rounded-lg shadow-md shadow-indigo-200 transition"
       >
         この設定で次へ進む
+      </button>
+
+      <button
+        onClick={onLoadMockData}
+        className="mt-3 w-full flex items-center justify-center gap-2 border border-gray-200 text-gray-600 hover:bg-gray-50 font-medium py-2.5 rounded-lg transition"
+      >
+        <FlaskConical size={16} />
+        サンプルデータを使ってみる
       </button>
     </div>
   );

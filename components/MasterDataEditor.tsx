@@ -1,7 +1,10 @@
 import React, { useState } from 'react';
-import { Plus, Trash2, Users, BookOpen, DoorOpen, GraduationCap } from 'lucide-react';
+import { Plus, Trash2, Users, BookOpen, DoorOpen, GraduationCap, ListChecks } from 'lucide-react';
 import { SchoolClass, Teacher, Subject, Room, SUBJECT_COLORS, SUBJECT_COLOR_CLASSES } from '../types';
 import { generateId } from '../utils';
+import { SUBJECT_PRESETS, ROOM_PRESETS } from '../data/presets';
+import { PresetPickerDialog } from './PresetPickerDialog';
+import { ClassGeneratorDialog } from './ClassGeneratorDialog';
 
 type Tab = 'classes' | 'teachers' | 'subjects' | 'rooms';
 
@@ -27,6 +30,48 @@ export const MasterDataEditor: React.FC<Props> = ({
   classes, teachers, subjects, rooms, setClasses, setTeachers, setSubjects, setRooms,
 }) => {
   const [tab, setTab] = useState<Tab>('classes');
+  const [isPresetOpen, setIsPresetOpen] = useState(false);
+  const [isClassGenOpen, setIsClassGenOpen] = useState(false);
+
+  const addSubjectsFromPreset = (names: string[]) => {
+    setSubjects(prev => {
+      const existing = new Set(prev.map(s => s.name));
+      const additions = names
+        .filter(name => !existing.has(name))
+        .map(name => {
+          const preset = SUBJECT_PRESETS.find(p => p.name === name);
+          return {
+            id: generateId(),
+            name,
+            color: preset?.color ?? SUBJECT_COLORS[prev.length % SUBJECT_COLORS.length],
+            maxPerDayPerClass: 1,
+            unavailable: [],
+          };
+        });
+      return [...prev, ...additions];
+    });
+  };
+
+  const addRoomsFromPreset = (names: string[]) => {
+    setRooms(prev => {
+      const existing = new Set(prev.map(r => r.name));
+      const additions = names.filter(name => !existing.has(name)).map(name => ({ id: generateId(), name, unavailable: [] }));
+      return [...prev, ...additions];
+    });
+  };
+
+  const addClassesFromGenerator = (names: string[]) => {
+    setClasses(prev => {
+      const existing = new Set(prev.map(c => c.name));
+      const additions = names.filter(name => !existing.has(name)).map(name => ({
+        id: generateId(),
+        name,
+        grade: name.match(/^(\d+年)/)?.[1],
+        unavailable: [],
+      }));
+      return [...prev, ...additions];
+    });
+  };
 
   const addRow = () => {
     if (tab === 'classes') {
@@ -217,13 +262,53 @@ export const MasterDataEditor: React.FC<Props> = ({
         </table>
       </div>
 
-      <button
-        onClick={addRow}
-        className="mt-3 flex items-center space-x-1.5 self-start text-sm font-medium text-indigo-600 hover:text-indigo-700 px-3 py-1.5 rounded-lg hover:bg-indigo-50 transition"
-      >
-        <Plus size={16} />
-        <span>追加</span>
-      </button>
+      <div className="mt-3 flex items-center gap-2">
+        <button
+          onClick={addRow}
+          className="flex items-center space-x-1.5 text-sm font-medium text-indigo-600 hover:text-indigo-700 px-3 py-1.5 rounded-lg hover:bg-indigo-50 transition"
+        >
+          <Plus size={16} />
+          <span>追加</span>
+        </button>
+        {tab === 'classes' && (
+          <button
+            onClick={() => setIsClassGenOpen(true)}
+            className="flex items-center space-x-1.5 text-sm font-medium text-indigo-600 hover:text-indigo-700 px-3 py-1.5 rounded-lg hover:bg-indigo-50 transition"
+          >
+            <ListChecks size={16} />
+            <span>クラスを一括生成</span>
+          </button>
+        )}
+        {(tab === 'subjects' || tab === 'rooms') && (
+          <button
+            onClick={() => setIsPresetOpen(true)}
+            className="flex items-center space-x-1.5 text-sm font-medium text-indigo-600 hover:text-indigo-700 px-3 py-1.5 rounded-lg hover:bg-indigo-50 transition"
+          >
+            <ListChecks size={16} />
+            <span>プリセットから追加</span>
+          </button>
+        )}
+      </div>
+
+      <PresetPickerDialog
+        isOpen={isPresetOpen && tab === 'subjects'}
+        onClose={() => setIsPresetOpen(false)}
+        title="科目プリセットから追加"
+        items={SUBJECT_PRESETS.map(p => ({ key: p.name, label: p.name, swatchColor: p.color }))}
+        onConfirm={addSubjectsFromPreset}
+      />
+      <PresetPickerDialog
+        isOpen={isPresetOpen && tab === 'rooms'}
+        onClose={() => setIsPresetOpen(false)}
+        title="教室プリセットから追加"
+        items={ROOM_PRESETS.map(name => ({ key: name, label: name }))}
+        onConfirm={addRoomsFromPreset}
+      />
+      <ClassGeneratorDialog
+        isOpen={isClassGenOpen}
+        onClose={() => setIsClassGenOpen(false)}
+        onConfirm={addClassesFromGenerator}
+      />
     </div>
   );
 };

@@ -2,6 +2,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import {
   CalendarDays, Settings2, Users, ListChecks, Ban, Grid3x3, Sparkles, BarChart3,
   Download, Upload, Printer, FileSpreadsheet, FileCode2, GitMerge, Layers, FileQuestion, Users2, History, LayoutGrid,
+  FlaskConical,
 } from 'lucide-react';
 import { SetupWizard } from './components/SetupWizard';
 import { MasterDataEditor } from './components/MasterDataEditor';
@@ -25,6 +26,7 @@ import {
 import { runScheduler } from './services/scheduler';
 import { exportCsv, exportHtml, saveProjectJson, loadProjectJson, mergeProjectData } from './services/exportService';
 import { saveBackup } from './services/backupService';
+import { buildMockProjectData } from './services/mockData';
 import { DEFAULT_DAYS } from './utils';
 import { useUndoableState } from './hooks/useUndoableState';
 
@@ -118,6 +120,13 @@ const App: React.FC = () => {
     applyProjectData(data);
   };
 
+  const handleLoadMockData = () => {
+    const hasExistingData = classes.length > 0 || teachers.length > 0 || subjects.length > 0 || lessons.length > 0;
+    if (hasExistingData && !window.confirm('サンプルデータを読み込むと、現在のデータは上書きされます。よろしいですか？')) return;
+    applyProjectData(buildMockProjectData());
+    setStep('timetable');
+  };
+
   const handleMerge = (incoming: ProjectData) => {
     const merged = mergeProjectData(currentData(), incoming);
     setClasses(merged.classes);
@@ -207,6 +216,13 @@ const App: React.FC = () => {
               onChange={e => { const f = e.target.files?.[0]; if (f) handleLoad(f); e.target.value = ''; }}
             />
             <button
+              onClick={handleLoadMockData}
+              title="サンプルデータを読み込む"
+              className="p-2 text-gray-500 hover:text-indigo-600 hover:bg-gray-100 rounded-lg transition"
+            >
+              <FlaskConical size={18} />
+            </button>
+            <button
               onClick={() => fileInputRef.current?.click()}
               title="ファイルを開く"
               className="p-2 text-gray-500 hover:text-indigo-600 hover:bg-gray-100 rounded-lg transition"
@@ -260,7 +276,9 @@ const App: React.FC = () => {
 
         {/* View Area */}
         <div className="flex-1 p-4 sm:p-6 overflow-auto relative print-hide-when-all">
-          {step === 'setup' && <SetupWizard settings={settings} onSave={s => { setSettings(s); setStep('master'); }} />}
+          {step === 'setup' && (
+            <SetupWizard settings={settings} onSave={s => { setSettings(s); setStep('master'); }} onLoadMockData={handleLoadMockData} />
+          )}
           {step === 'master' && (
             <MasterDataEditor
               classes={classes} teachers={teachers} subjects={subjects} rooms={rooms}
