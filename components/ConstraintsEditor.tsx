@@ -281,7 +281,7 @@ export const ConstraintsEditor: React.FC<Props> = ({
                       min={1}
                       max={200}
                       value={opt.maxAttempts}
-                      onChange={e => updateOption(opt.id, { maxAttempts: Number(e.target.value) })}
+                      onChange={e => updateOption(opt.id, { maxAttempts: Math.min(200, Math.max(1, Number(e.target.value) || 1)) })}
                       className="w-20 px-2 py-1 rounded border border-gray-200"
                     />
                   </label>
