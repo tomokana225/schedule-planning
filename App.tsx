@@ -380,7 +380,7 @@ const App: React.FC = () => {
           {step === 'tiles' && (
             <TileView
               settings={settings} classes={classes} teachers={teachers} rooms={rooms} subjects={subjects}
-              lessons={lessons} placements={displayPlacements} meetings={meetings}
+              lessons={lessons} placements={displayPlacements} setPlacements={setPlacements} meetings={meetings}
               onOpenEntity={(viewBy, entityId) => { setJumpFocus({ viewBy, entityId }); setStep('timetable'); }}
               onRunScheduler={handleRunScheduler} isRunning={isRunning} activeOption={activeOption}
               onChangeMaxSeconds={handleChangeMaxSeconds}
