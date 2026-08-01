@@ -21,6 +21,7 @@ interface Props {
   setPlacements: React.Dispatch<React.SetStateAction<Placement[]>>;
   onRunScheduler: () => void;
   isRunning: boolean;
+  runningSecondsLeft?: number | null;
   activeOption: SchedulerOptions;
   onChangeMaxSeconds: (maxSeconds: number) => void;
   meetings: Meeting[];
@@ -54,7 +55,7 @@ export const computeUnplaced = (lessons: Lesson[], placements: Placement[]) => {
 };
 
 export const TimetableGrid: React.FC<Props> = ({
-  settings, classes, teachers, subjects, rooms, lessons, placements, setPlacements, onRunScheduler, isRunning, activeOption,
+  settings, classes, teachers, subjects, rooms, lessons, placements, setPlacements, onRunScheduler, isRunning, runningSecondsLeft, activeOption,
   onChangeMaxSeconds, meetings,
   onUndo, onRedo, canUndo, canRedo, initialFocus, onFocusHandled,
 }) => {
@@ -329,7 +330,7 @@ export const TimetableGrid: React.FC<Props> = ({
             className="flex items-center gap-1.5 bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white px-4 py-2 rounded-lg text-sm font-medium shadow-md shadow-indigo-200"
           >
             {isRunning ? <RefreshCw size={16} className="animate-spin" /> : <Wand2 size={16} />}
-            <span>{isRunning ? '駒入れ中...' : 'AIで自動駒入れ'}</span>
+            <span>{isRunning ? `駒入れ中...${runningSecondsLeft != null ? `（残り${runningSecondsLeft}秒）` : ''}` : 'AIで自動駒入れ'}</span>
           </button>
         </div>
       </div>
