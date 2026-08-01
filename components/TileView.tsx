@@ -1,11 +1,12 @@
 import React, { useState } from 'react';
-import { Users, GraduationCap, DoorOpen, BookOpen, Table2 } from 'lucide-react';
+import { Users, GraduationCap, DoorOpen, BookOpen, Table2, TableProperties } from 'lucide-react';
 import {
   SchoolClass, Teacher, Room, Subject, Lesson, Placement, TimetableSettings, SUBJECT_COLOR_CLASSES,
 } from '../types';
 import { AllClassesOverview } from './AllClassesOverview';
+import { AllClassesMatrix } from './AllClassesMatrix';
 
-type TileTab = 'overview' | 'teachers' | 'classes' | 'rooms' | 'subjects';
+type TileTab = 'overview' | 'matrix' | 'teachers' | 'classes' | 'rooms' | 'subjects';
 
 interface Props {
   settings: TimetableSettings;
@@ -20,6 +21,7 @@ interface Props {
 
 const TABS: { key: TileTab; label: string; icon: React.ReactNode }[] = [
   { key: 'overview', label: '全クラス一覧', icon: <Table2 size={16} /> },
+  { key: 'matrix', label: '一括表', icon: <TableProperties size={16} /> },
   { key: 'teachers', label: '先生', icon: <Users size={16} /> },
   { key: 'classes', label: 'クラス', icon: <GraduationCap size={16} /> },
   { key: 'rooms', label: '教室', icon: <DoorOpen size={16} /> },
@@ -89,8 +91,10 @@ export const TileView: React.FC<Props> = ({ settings, classes, teachers, rooms, 
   return (
     <div className="flex flex-col h-full">
       <p className="text-xs text-gray-500 mb-3">
-        「全クラス一覧」ではすべてのクラス・学年の時間割を並べて確認できます。先生・クラス・教室・科目タブでは、
-        配置済みコマ数と週の埋まり具合を一覧できます。タイルをクリックすると詳細な時間割作成画面を開きます。
+        「全クラス一覧」ではすべてのクラス・学年の時間割を並べて確認できます。「一括表」では縦に学年・クラス、
+        横に曜日・時限を並べた一つの表ですべてのコマを確認でき、空きコマがあればエラーとして一覧表示されます。
+        先生・クラス・教室・科目タブでは、配置済みコマ数と週の埋まり具合を一覧できます。
+        タイルをクリックすると詳細な時間割作成画面を開きます。
       </p>
       <div className="flex items-center space-x-1 bg-gray-100 rounded-lg p-1 w-fit mb-4">
         {TABS.map(t => (
@@ -110,6 +114,13 @@ export const TileView: React.FC<Props> = ({ settings, classes, teachers, rooms, 
       <div className="flex-1 overflow-auto">
         {tab === 'overview' && (
           <AllClassesOverview
+            settings={settings} classes={classes} teachers={teachers} subjects={subjects}
+            lessons={lessons} placements={placements}
+            onOpenClass={classId => onOpenEntity('class', classId)}
+          />
+        )}
+        {tab === 'matrix' && (
+          <AllClassesMatrix
             settings={settings} classes={classes} teachers={teachers} subjects={subjects}
             lessons={lessons} placements={placements}
             onOpenClass={classId => onOpenEntity('class', classId)}
