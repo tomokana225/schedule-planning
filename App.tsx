@@ -201,8 +201,14 @@ const App: React.FC = () => {
         {/* Header */}
         <header className="h-16 bg-white border-b border-gray-200 flex items-center justify-between px-6 flex-shrink-0 no-print">
           <div className="flex items-center space-x-4 overflow-hidden">
-            <h1 className="text-xl font-bold tracking-tight text-gray-900 whitespace-nowrap">
-              {settings.schoolName || 'イデア学園'} の AI時間割
+            <h1 className="text-xl font-bold tracking-tight text-gray-900 whitespace-nowrap flex items-baseline gap-2">
+              <span>{settings.schoolName || 'イデア学園'} の AI時間割</span>
+              <span
+                className="text-xs font-normal text-gray-400 select-none"
+                title={`アプリバージョン ${__APP_VERSION__}`}
+              >
+                v{__APP_VERSION__}
+              </span>
             </h1>
             <div className="hidden lg:flex items-center bg-gray-100 rounded-lg p-1 space-x-1 overflow-x-auto">
               {STEPS.map(s => (
