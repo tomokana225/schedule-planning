@@ -46,3 +46,14 @@ CSV出力、HTML出力（アプリなしで閲覧できる読み取り専用ビ�
 2. Set the `GEMINI_API_KEY`（Cloudflare環境では `API_KEY`）を設定
 3. Run the app:
    `npm run dev`
+
+## GitHub Pages への自動デプロイ
+
+`main` ブランチに push すると `.github/workflows/deploy-pages.yml` が `npm run build` を実行し、
+`dist/` を GitHub Pages に自動公開します。リポジトリの Settings → Pages で
+「Source: GitHub Actions」を選択しておいてください。公開URLは
+`https://<ユーザー名>.github.io/schedule-planning/` になります。
+
+GitHub Pagesは静的ファイルのみのホスティングのため、AIアシスタントのチャット機能（`/api/chat` を呼び出す
+Cloudflare Worker）は動作しません。それ以外の時間割作成・編集・出力機能はすべて問題なく動作します。
+チャット機能まで含めて公開したい場合は、`wrangler.json` を使ったCloudflare Workersへのデプロイをご利用ください。
