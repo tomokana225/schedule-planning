@@ -1,5 +1,5 @@
 import React from 'react';
-import { SchoolClass, Teacher, Subject, Lesson, Placement, TimetableSettings, SUBJECT_COLOR_CLASSES } from '../types';
+import { SchoolClass, Teacher, Subject, Lesson, Placement, Meeting, TimetableSettings, SUBJECT_COLOR_CLASSES } from '../types';
 import { periodsForDay, maxPeriodsAcrossDays } from '../utils';
 
 interface Props {
@@ -9,6 +9,7 @@ interface Props {
   subjects: Subject[];
   lessons: Lesson[];
   placements: Placement[];
+  meetings: Meeting[];
   onOpenClass: (classId: string) => void;
 }
 
@@ -16,9 +17,23 @@ interface Props {
 // not just occupancy dots), grouped by grade, so all classes/grades can be
 // compared side by side without opening each one individually.
 export const AllClassesOverview: React.FC<Props> = ({
-  settings, classes, teachers, subjects, lessons, placements, onOpenClass,
+  settings, classes, teachers, subjects, lessons, placements, meetings, onOpenClass,
 }) => {
   const lessonById = new Map(lessons.map(l => [l.id, l]));
+
+  const classTeacherIds = new Map<string, Set<string>>();
+  for (const l of lessons) {
+    for (const classId of l.classIds) {
+      if (!classTeacherIds.has(classId)) classTeacherIds.set(classId, new Set());
+      const set = classTeacherIds.get(classId)!;
+      for (const t of l.teacherIds) set.add(t);
+    }
+  }
+  const meetingBlockingClass = (classId: string, day: number, period: number): Meeting | undefined => {
+    const teacherIds = classTeacherIds.get(classId);
+    if (!teacherIds || teacherIds.size === 0) return undefined;
+    return meetings.find(m => m.day === day && m.period === period && [...teacherIds].every(t => m.teacherIds.includes(t)));
+  };
 
   const cellAt = (classId: string, day: number, period: number): { lesson: Lesson; placement: Placement } | null => {
     for (const p of placements) {
@@ -81,7 +96,17 @@ export const AllClassesOverview: React.FC<Props> = ({
                           }
                           const cell = cellAt(cls.id, day, period);
                           if (cell && cell.placement.period !== period) return null; // covered by rowSpan above
-                          if (!cell) return <td key={day} className="border border-gray-100 h-6 bg-gray-50" />;
+                          if (!cell) {
+                            const meeting = meetingBlockingClass(cls.id, day, period);
+                            if (meeting) {
+                              return (
+                                <td key={day} className="border border-gray-100 h-6 bg-slate-200 text-slate-500 text-center overflow-hidden" title={`会議: ${meeting.name}`}>
+                                  <span className="truncate block leading-tight">{meeting.name}</span>
+                                </td>
+                              );
+                            }
+                            return <td key={day} className="border border-gray-100 h-6 bg-gray-50" />;
+                          }
                           const subject = subjects.find(s => s.id === cell.lesson.subjectId);
                           const teacherNames = cell.lesson.teacherIds
                             .map(id => teachers.find(t => t.id === id)?.short || teachers.find(t => t.id === id)?.name)
