@@ -126,6 +126,16 @@ interface RunResult {
   unplaced: { lessonId: string; count: number }[];
 }
 
+// Summarizes an arbitrary placements array the same way attempt()/repairRemainingOnce()
+// do, so an existing schedule can be compared against freshly generated ones on equal terms.
+const summarizeUnplaced = (lessons: Lesson[], placements: Placement[]): { lessonId: string; count: number }[] => {
+  const placedCount = new Map<string, number>();
+  for (const p of placements) placedCount.set(p.lessonId, (placedCount.get(p.lessonId) || 0) + 1);
+  return lessons
+    .map(l => ({ lessonId: l.id, count: l.weeklyCount - (placedCount.get(l.id) || 0) }))
+    .filter(u => u.count > 0);
+};
+
 const shuffle = <T,>(arr: T[]): T[] => {
   const a = [...arr];
   for (let i = a.length - 1; i > 0; i--) {
@@ -303,44 +313,51 @@ const repairRemainingOnce = (ctx: SchedulerContext, result: RunResult): RunResul
 
 const now = () => (typeof performance !== 'undefined' ? performance.now() : Date.now());
 
+const totalUnplaced = (r: RunResult): number => r.unplaced.reduce((s, u) => s + u.count, 0);
+
 // Runs the auto-assignment (駒入れ), keeping any already-confirmed placements fixed,
 // and keeps trying randomized attempts within the configured time budget (実行時間、秒),
 // keeping whichever leaves the fewest lessons unplaced and stopping early the moment
 // one reaches 0 残り駒. The configured seconds is the actual, sole cap for this phase —
 // increasing it in the UI directly increases how long attempts keep running.
 //
-// If the best attempt still has leftovers and time remains in the same budget, a second
-// phase repeatedly tries to place just those remaining lessons (direct search + single-
-// blocker local repair) against the best full schedule found, so 残り駒 keeps shrinking
-// toward 0 for every teacher/class without redoing the whole random search.
+// Each round does one fresh full random attempt, then (if time remains) one repair pass
+// against whichever result is currently best — rather than a fixed split where a whole
+// half of the budget is committed to fresh attempts and the other half to repair. A rigid
+// split can waste large stretches of a long budget: if the residual unplaced lessons only
+// ever have multiple blocking placements at every candidate slot, repairRemainingOnce's
+// single-blocker heuristic can never succeed no matter how many rounds it gets, so a fixed
+// repair half is pure dead time that fresh attempts could have used instead (this showed up
+// as longer time budgets not improving results, while many short repeated runs did better —
+// each short run wasted only a small, proportional slice on unproductive repair instead of
+// a large fixed block of it). Interleaving keeps both phases perpetually earning their share
+// of the budget based on whether they're actually helping, for any dataset shape.
+//
+// `best` is seeded with the schedule that's already on screen (existingPlacements), not
+// just its confirmed subset, so re-running can never silently hand back something worse:
+// a fresh attempt or repair pass only replaces it once it's a genuine improvement in 残り駒.
+// Without this, every click was a gamble — a worse random attempt could overwrite an
+// already-good (or already-complete) schedule, which is what made "just keep clicking a
+// short run and stop when it looks good" feel more reliable than one longer run.
 export const runScheduler = (ctx: SchedulerContext, existingPlacements: Placement[]): RunResult => {
   const keepConfirmed = existingPlacements.filter(p => p.confirmed);
   const budgetMs = (ctx.options?.maxSeconds ?? 15) * 1000;
   const start = now();
-  // Fresh random attempts get the first half of the budget; the local-search repair
-  // phase always gets the second half (rather than however little happens to be left
-  // over), since it is what actually squeezes 残り駒 toward 0 once random search plateaus.
-  const attemptDeadline = start + budgetMs / 2;
-  let best: RunResult | null = null;
+
+  let best: RunResult = { placements: existingPlacements, unplaced: summarizeUnplaced(ctx.lessons, existingPlacements) };
+  if (totalUnplaced(best) === 0) return best;
 
   do {
     const result = attempt(ctx, keepConfirmed);
-    const unplacedTotal = result.unplaced.reduce((s, u) => s + u.count, 0);
-    if (!best || unplacedTotal < best.unplaced.reduce((s, u) => s + u.count, 0)) {
-      best = result;
-      if (unplacedTotal === 0) break;
-    }
-  } while (now() < attemptDeadline);
+    if (totalUnplaced(result) < totalUnplaced(best)) best = result;
+    if (totalUnplaced(best) === 0) break;
 
-  let bestUnplaced = best!.unplaced.reduce((s, u) => s + u.count, 0);
-  while (bestUnplaced > 0 && now() - start < budgetMs) {
-    const repaired = repairRemainingOnce(ctx, best!);
-    const repairedUnplaced = repaired.unplaced.reduce((s, u) => s + u.count, 0);
-    if (repairedUnplaced < bestUnplaced) {
-      best = repaired;
-      bestUnplaced = repairedUnplaced;
+    if (now() - start < budgetMs) {
+      const repaired = repairRemainingOnce(ctx, best);
+      if (totalUnplaced(repaired) < totalUnplaced(best)) best = repaired;
+      if (totalUnplaced(best) === 0) break;
     }
-  }
+  } while (now() - start < budgetMs);
 
-  return best!;
+  return best;
 };
