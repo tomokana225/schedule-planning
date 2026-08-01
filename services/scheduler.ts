@@ -251,10 +251,19 @@ const repairRemainingOnce = (ctx: SchedulerContext, result: RunResult): RunResul
     const blocker = blockers[0];
     const blockerLesson = lessonById.get(blocker.lessonId);
     if (!blockerLesson) return false;
-    const exclude = new Set([blocker.id]);
+
+    // Crucial: confirm the target lesson would actually be valid at (day, period)
+    // once this one blocker is out of the way — the blocker being the sole
+    // *placement* conflict there does NOT mean the slot is otherwise open; it
+    // could still violate 禁制 (unavailable), a 会議, maxPerDay, etc. Without
+    // this check the repair would blindly place the lesson into a forbidden
+    // slot as long as exactly one other placement happened to be there too.
+    const excludeBlocker = new Set([blocker.id]);
+    if (!isValidPlacement(ctx, placements, lesson, day, period, excludeBlocker)) return false;
+
     const altSlot = shuffle(allSlots).find(s =>
       !(s.day === day && s.period <= targetEnd && s.period + blockerLesson.consecutive - 1 >= period)
-      && isValidPlacement(ctx, placements, blockerLesson, s.day, s.period, exclude),
+      && isValidPlacement(ctx, placements, blockerLesson, s.day, s.period, excludeBlocker),
     );
     if (!altSlot) return false;
     const idx = placements.findIndex(p => p.id === blocker.id);
