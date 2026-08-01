@@ -17,7 +17,7 @@ import { BandTimetableTool } from './components/BandTimetableTool';
 import { ExamTimetableEditor } from './components/ExamTimetableEditor';
 import { MeetingEditor } from './components/MeetingEditor';
 import { BackupPanel } from './components/BackupPanel';
-import { TileView } from './components/TileView';
+import { TileView, TileTab } from './components/TileView';
 import { ExcelImportDialog } from './components/ExcelImportDialog';
 import { ImportResult } from './services/excelImportService';
 import {
@@ -80,8 +80,13 @@ const App: React.FC = () => {
   const [bandPlacements, setBandPlacements] = useState<Placement[]>([]);
   const [bandWeekOffset, setBandWeekOffset] = useState(0);
   const [jumpFocus, setJumpFocus] = useState<{ viewBy: 'class' | 'teacher' | 'room'; entityId: string } | null>(null);
+  // 自動駒入れ中に少しずつ駒が埋まっていく様子を見せるための一時的なプレビュー状態。
+  // 一手戻し履歴には残さず、完了時に一度だけ本来の setPlacements で確定させる。
+  const [previewPlacements, setPreviewPlacements] = useState<Placement[] | null>(null);
+  const [tileFocusTab, setTileFocusTab] = useState<TileTab | null>(null);
 
   const activeOption = optionPresets.find(o => o.id === activeOptionId) ?? optionPresets[0];
+  const displayPlacements = previewPlacements ?? placements;
 
   const handleRunScheduler = () => {
     setIsRunning(true);
@@ -90,8 +95,40 @@ const App: React.FC = () => {
         { settings, classes, teachers, subjects, rooms, lessons, options: activeOption, meetings },
         placements,
       );
-      setPlacements(result.placements);
-      setIsRunning(false);
+      const prevIds = new Set(placements.map(p => p.id));
+      const kept = result.placements.filter(p => prevIds.has(p.id));
+      const newOnes = result.placements
+        .filter(p => !prevIds.has(p.id))
+        .sort((a, b) => a.day - b.day || a.period - b.period);
+
+      const finish = () => {
+        setPlacements(result.placements);
+        setPreviewPlacements(null);
+        setIsRunning(false);
+        setStep('tiles');
+        setTileFocusTab('matrix');
+      };
+
+      if (newOnes.length === 0) {
+        finish();
+        return;
+      }
+
+      // コマが少しずつ配置されていく様子を視覚的に見せる（およそ30ステップで反映）
+      const totalSteps = 30;
+      const batchSize = Math.max(1, Math.ceil(newOnes.length / totalSteps));
+      setPreviewPlacements(kept);
+      let revealed = 0;
+      const revealStep = () => {
+        revealed += batchSize;
+        if (revealed >= newOnes.length) {
+          finish();
+          return;
+        }
+        setPreviewPlacements([...kept, ...newOnes.slice(0, revealed)]);
+        window.setTimeout(revealStep, 40);
+      };
+      window.setTimeout(revealStep, 40);
     }, 50);
   };
 
@@ -331,7 +368,7 @@ const App: React.FC = () => {
           {step === 'timetable' && (
             <TimetableGrid
               settings={settings} classes={classes} teachers={teachers} subjects={subjects} rooms={rooms}
-              lessons={lessons} placements={placements} setPlacements={setPlacements}
+              lessons={lessons} placements={displayPlacements} setPlacements={setPlacements}
               onRunScheduler={handleRunScheduler} isRunning={isRunning} activeOption={activeOption}
               onChangeMaxAttempts={handleChangeMaxAttempts}
               meetings={meetings}
@@ -342,8 +379,11 @@ const App: React.FC = () => {
           {step === 'tiles' && (
             <TileView
               settings={settings} classes={classes} teachers={teachers} rooms={rooms} subjects={subjects}
-              lessons={lessons} placements={placements}
+              lessons={lessons} placements={displayPlacements}
               onOpenEntity={(viewBy, entityId) => { setJumpFocus({ viewBy, entityId }); setStep('timetable'); }}
+              onRunScheduler={handleRunScheduler} isRunning={isRunning} activeOption={activeOption}
+              onChangeMaxAttempts={handleChangeMaxAttempts}
+              focusTab={tileFocusTab} onFocusTabHandled={() => setTileFocusTab(null)}
             />
           )}
           {step === 'summary' && <SummaryReport data={currentData()} />}

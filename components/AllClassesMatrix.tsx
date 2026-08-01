@@ -96,11 +96,18 @@ export const AllClassesMatrix: React.FC<Props> = ({
       )}
 
       <div className="overflow-auto border border-gray-200 rounded-xl">
-        <table className="border-collapse text-[11px] w-full">
+        <table className="border-collapse text-[11px] table-fixed">
+          <colgroup>
+            <col style={{ width: '3.5rem' }} />
+            <col style={{ width: '4.5rem' }} />
+            {settings.days.flatMap((_, dayIdx) =>
+              periods.map(period => <col key={`col-${dayIdx}-${period}`} style={{ width: '2.75rem' }} />),
+            )}
+          </colgroup>
           <thead>
             <tr>
-              <th rowSpan={2} className="sticky left-0 top-0 z-20 bg-gray-100 border border-gray-200 px-2 py-1 min-w-[3.5rem]">学年</th>
-              <th rowSpan={2} className="sticky left-14 top-0 z-20 bg-gray-100 border border-gray-200 px-2 py-1 min-w-[4.5rem]">クラス</th>
+              <th rowSpan={2} className="sticky left-0 top-0 z-20 bg-gray-100 border border-gray-200 px-2 py-1">学年</th>
+              <th rowSpan={2} className="sticky left-14 top-0 z-20 bg-gray-100 border border-gray-200 px-2 py-1">クラス</th>
               {settings.days.map(d => (
                 <th
                   key={d}
@@ -116,7 +123,7 @@ export const AllClassesMatrix: React.FC<Props> = ({
                 periods.map(period => (
                   <th
                     key={`${dayIdx}-${period}`}
-                    className={`sticky top-6 z-10 bg-gray-50 border border-gray-200 px-1.5 py-1 text-gray-400 font-normal ${
+                    className={`sticky top-6 z-10 bg-gray-50 border border-gray-200 h-7 text-gray-400 font-normal ${
                       settings.lunchAfterPeriod === period ? 'border-b-2 border-b-amber-300' : ''
                     }`}
                   >
@@ -138,13 +145,15 @@ export const AllClassesMatrix: React.FC<Props> = ({
                   {isFirstOfGrade && (
                     <td
                       rowSpan={gradeRowSpan}
-                      className="sticky left-0 z-10 bg-white border border-gray-200 px-2 py-1 font-semibold text-gray-700 align-top whitespace-nowrap"
+                      title={grade || '未設定'}
+                      className="sticky left-0 z-10 bg-white border border-gray-200 px-2 py-1 font-semibold text-gray-700 align-top truncate"
                     >
                       {grade || '未設定'}
                     </td>
                   )}
                   <td
-                    className="sticky left-14 z-10 bg-white border border-gray-200 px-2 py-1 font-medium text-gray-700 whitespace-nowrap cursor-pointer hover:text-indigo-600"
+                    title={cls.name}
+                    className="sticky left-14 z-10 bg-white border border-gray-200 px-2 py-1 font-medium text-gray-700 truncate cursor-pointer hover:text-indigo-600"
                     onClick={() => onOpenClass(cls.id)}
                   >
                     {cls.name}
@@ -157,7 +166,7 @@ export const AllClassesMatrix: React.FC<Props> = ({
                         return (
                           <td
                             key={`${day}-${period}`}
-                            className="border border-red-200 bg-red-50 text-red-400 text-center h-7 min-w-[2.75rem]"
+                            className="border border-red-200 bg-red-50 text-red-400 text-center align-middle h-11"
                             title={`${cls.name} ${settings.days[day]}${period}限が空いています`}
                           >
                             ×
@@ -173,7 +182,7 @@ export const AllClassesMatrix: React.FC<Props> = ({
                         <td
                           key={`${day}-${period}`}
                           colSpan={cell.lesson.consecutive}
-                          className={`border border-gray-100 text-center px-1 min-w-[2.75rem] ${SUBJECT_COLOR_CLASSES[subject?.color ?? 'blue']}`}
+                          className={`border border-gray-100 text-center align-middle px-1 h-11 overflow-hidden ${SUBJECT_COLOR_CLASSES[subject?.color ?? 'blue']}`}
                         >
                           <div className="font-semibold leading-tight truncate">{subject?.name ?? '?'}</div>
                           <div className="opacity-70 truncate leading-tight">{teacherNames}</div>

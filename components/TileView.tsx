@@ -1,12 +1,12 @@
-import React, { useState } from 'react';
-import { Users, GraduationCap, DoorOpen, BookOpen, Table2, TableProperties } from 'lucide-react';
+import React, { useEffect, useState } from 'react';
+import { Users, GraduationCap, DoorOpen, BookOpen, Table2, TableProperties, Wand2, RefreshCw } from 'lucide-react';
 import {
-  SchoolClass, Teacher, Room, Subject, Lesson, Placement, TimetableSettings, SUBJECT_COLOR_CLASSES,
+  SchoolClass, Teacher, Room, Subject, Lesson, Placement, TimetableSettings, SchedulerOptions, SUBJECT_COLOR_CLASSES,
 } from '../types';
 import { AllClassesOverview } from './AllClassesOverview';
 import { AllClassesMatrix } from './AllClassesMatrix';
 
-type TileTab = 'overview' | 'matrix' | 'teachers' | 'classes' | 'rooms' | 'subjects';
+export type TileTab = 'overview' | 'matrix' | 'teachers' | 'classes' | 'rooms' | 'subjects';
 
 interface Props {
   settings: TimetableSettings;
@@ -17,6 +17,12 @@ interface Props {
   lessons: Lesson[];
   placements: Placement[];
   onOpenEntity: (viewBy: 'class' | 'teacher' | 'room', entityId: string) => void;
+  onRunScheduler: () => void;
+  isRunning: boolean;
+  activeOption: SchedulerOptions;
+  onChangeMaxAttempts: (maxAttempts: number) => void;
+  focusTab?: TileTab | null;
+  onFocusTabHandled?: () => void;
 }
 
 const TABS: { key: TileTab; label: string; icon: React.ReactNode }[] = [
@@ -28,10 +34,21 @@ const TABS: { key: TileTab; label: string; icon: React.ReactNode }[] = [
   { key: 'subjects', label: '科目', icon: <BookOpen size={16} /> },
 ];
 
-export const TileView: React.FC<Props> = ({ settings, classes, teachers, rooms, subjects, lessons, placements, onOpenEntity }) => {
+export const TileView: React.FC<Props> = ({
+  settings, classes, teachers, rooms, subjects, lessons, placements, onOpenEntity,
+  onRunScheduler, isRunning, activeOption, onChangeMaxAttempts, focusTab, onFocusTabHandled,
+}) => {
   const [tab, setTab] = useState<TileTab>('overview');
   const lessonById = new Map(lessons.map(l => [l.id, l]));
   const totalSlots = settings.days.length * settings.periodsPerDay;
+
+  // 自動駒入れ完了後などに、外部から特定のタブ（一括表など）へジャンプさせる
+  useEffect(() => {
+    if (!focusTab) return;
+    setTab(focusTab);
+    onFocusTabHandled?.();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [focusTab]);
 
   const occupancyGrid = (matches: (lesson: Lesson) => boolean) => {
     const grid = Array.from({ length: settings.days.length }, () => Array<string | null>(settings.periodsPerDay).fill(null));
@@ -93,22 +110,47 @@ export const TileView: React.FC<Props> = ({ settings, classes, teachers, rooms, 
       <p className="text-xs text-gray-500 mb-3">
         「全クラス一覧」ではすべてのクラス・学年の時間割を並べて確認できます。「一括表」では縦に学年・クラス、
         横に曜日・時限を並べた一つの表ですべてのコマを確認でき、空きコマがあればエラーとして一覧表示されます。
+        この画面を見ながら「AIで自動駒入れ」を実行すると、コマが埋まっていく様子をそのまま確認できます。
         先生・クラス・教室・科目タブでは、配置済みコマ数と週の埋まり具合を一覧できます。
         タイルをクリックすると詳細な時間割作成画面を開きます。
       </p>
-      <div className="flex items-center space-x-1 bg-gray-100 rounded-lg p-1 w-fit mb-4">
-        {TABS.map(t => (
+      <div className="flex items-center justify-between flex-wrap gap-2 mb-4">
+        <div className="flex items-center space-x-1 bg-gray-100 rounded-lg p-1 w-fit">
+          {TABS.map(t => (
+            <button
+              key={t.key}
+              onClick={() => setTab(t.key)}
+              className={`flex items-center space-x-1.5 px-4 py-1.5 rounded-md text-sm font-medium transition ${
+                tab === t.key ? 'bg-white shadow-sm text-indigo-600' : 'text-gray-500 hover:text-gray-700'
+              }`}
+            >
+              {t.icon}
+              <span>{t.label}</span>
+            </button>
+          ))}
+        </div>
+        <div className="flex items-center gap-2">
+          <label className="flex items-center gap-1.5 text-xs text-gray-500" title="残り駒が0になるまで試行を重ねる際の最低保証回数">
+            <span>試行回数</span>
+            <input
+              type="number"
+              min={1}
+              max={200}
+              value={activeOption.maxAttempts}
+              onChange={e => onChangeMaxAttempts(Math.max(1, Number(e.target.value) || 1))}
+              disabled={isRunning}
+              className="w-16 px-2 py-1.5 rounded-lg border border-gray-200 bg-white text-gray-700 disabled:opacity-50"
+            />
+          </label>
           <button
-            key={t.key}
-            onClick={() => setTab(t.key)}
-            className={`flex items-center space-x-1.5 px-4 py-1.5 rounded-md text-sm font-medium transition ${
-              tab === t.key ? 'bg-white shadow-sm text-indigo-600' : 'text-gray-500 hover:text-gray-700'
-            }`}
+            onClick={onRunScheduler}
+            disabled={isRunning}
+            className="flex items-center gap-1.5 bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white px-4 py-2 rounded-lg text-sm font-medium shadow-md shadow-indigo-200"
           >
-            {t.icon}
-            <span>{t.label}</span>
+            {isRunning ? <RefreshCw size={16} className="animate-spin" /> : <Wand2 size={16} />}
+            <span>{isRunning ? '駒入れ中...' : 'AIで自動駒入れ'}</span>
           </button>
-        ))}
+        </div>
       </div>
 
       <div className="flex-1 overflow-auto">
