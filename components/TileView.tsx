@@ -20,6 +20,7 @@ interface Props {
   subjects: Subject[];
   lessons: Lesson[];
   placements: Placement[];
+  setPlacements: React.Dispatch<React.SetStateAction<Placement[]>>;
   meetings: Meeting[];
   onOpenEntity: (viewBy: 'class' | 'teacher' | 'room', entityId: string) => void;
   onRunScheduler: () => void;
@@ -40,7 +41,7 @@ const TABS: { key: TileTab; label: string; icon: React.ReactNode }[] = [
 ];
 
 export const TileView: React.FC<Props> = ({
-  settings, classes, teachers, rooms, subjects, lessons, placements, meetings, onOpenEntity,
+  settings, classes, teachers, rooms, subjects, lessons, placements, setPlacements, meetings, onOpenEntity,
   onRunScheduler, isRunning, activeOption, onChangeMaxSeconds, focusTab, onFocusTabHandled,
 }) => {
   const [tab, setTab] = useState<TileTab>('overview');
@@ -173,8 +174,9 @@ export const TileView: React.FC<Props> = ({
         )}
         {tab === 'matrix' && (
           <AllClassesMatrix
-            settings={settings} classes={classes} teachers={teachers} subjects={subjects}
-            lessons={lessons} placements={placements} meetings={meetings}
+            settings={settings} classes={classes} teachers={teachers} rooms={rooms} subjects={subjects}
+            lessons={lessons} placements={placements} setPlacements={setPlacements} meetings={meetings}
+            activeOption={activeOption}
             onOpenClass={classId => onOpenEntity('class', classId)}
           />
         )}
