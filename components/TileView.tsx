@@ -25,7 +25,7 @@ interface Props {
   onRunScheduler: () => void;
   isRunning: boolean;
   activeOption: SchedulerOptions;
-  onChangeMaxAttempts: (maxAttempts: number) => void;
+  onChangeMaxSeconds: (maxSeconds: number) => void;
   focusTab?: TileTab | null;
   onFocusTabHandled?: () => void;
 }
@@ -41,7 +41,7 @@ const TABS: { key: TileTab; label: string; icon: React.ReactNode }[] = [
 
 export const TileView: React.FC<Props> = ({
   settings, classes, teachers, rooms, subjects, lessons, placements, meetings, onOpenEntity,
-  onRunScheduler, isRunning, activeOption, onChangeMaxAttempts, focusTab, onFocusTabHandled,
+  onRunScheduler, isRunning, activeOption, onChangeMaxSeconds, focusTab, onFocusTabHandled,
 }) => {
   const [tab, setTab] = useState<TileTab>('overview');
   const lessonById = new Map(lessons.map(l => [l.id, l]));
@@ -140,14 +140,14 @@ export const TileView: React.FC<Props> = ({
           ))}
         </div>
         <div className="flex items-center gap-2">
-          <label className="flex items-center gap-1.5 text-xs text-gray-500" title="AIで自動駒入れを行う際の試行回数（多いほど残り駒0に近づきやすいが時間がかかる）">
-            <span>試行回数</span>
+          <label className="flex items-center gap-1.5 text-xs text-gray-500" title="AIで自動駒入れを行う実行時間（秒）。この時間内で残り駒0になるまで繰り返す（長いほど残り駒0に近づきやすいが時間がかかる）">
+            <span>実行時間(秒)</span>
             <input
               type="number"
               min={1}
-              max={200}
-              value={activeOption.maxAttempts}
-              onChange={e => onChangeMaxAttempts(Math.min(200, Math.max(1, Number(e.target.value) || 1)))}
+              max={180}
+              value={activeOption.maxSeconds}
+              onChange={e => onChangeMaxSeconds(Math.min(180, Math.max(1, Number(e.target.value) || 1)))}
               disabled={isRunning}
               className="w-16 px-2 py-1.5 rounded-lg border border-gray-200 bg-white text-gray-700 disabled:opacity-50"
             />

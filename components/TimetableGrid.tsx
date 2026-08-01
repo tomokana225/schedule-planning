@@ -22,7 +22,7 @@ interface Props {
   onRunScheduler: () => void;
   isRunning: boolean;
   activeOption: SchedulerOptions;
-  onChangeMaxAttempts: (maxAttempts: number) => void;
+  onChangeMaxSeconds: (maxSeconds: number) => void;
   meetings: Meeting[];
   onUndo: () => void;
   onRedo: () => void;
@@ -55,7 +55,7 @@ export const computeUnplaced = (lessons: Lesson[], placements: Placement[]) => {
 
 export const TimetableGrid: React.FC<Props> = ({
   settings, classes, teachers, subjects, rooms, lessons, placements, setPlacements, onRunScheduler, isRunning, activeOption,
-  onChangeMaxAttempts, meetings,
+  onChangeMaxSeconds, meetings,
   onUndo, onRedo, canUndo, canRedo, initialFocus, onFocusHandled,
 }) => {
   const [viewBy, setViewBy] = useState<ViewBy>('class');
@@ -311,14 +311,14 @@ export const TimetableGrid: React.FC<Props> = ({
               <Redo2 size={16} />
             </button>
           </div>
-          <label className="flex items-center gap-1.5 text-xs text-gray-500" title="AIで自動駒入れを行う際の試行回数（多いほど残り駒0に近づきやすいが時間がかかる）">
-            <span>試行回数</span>
+          <label className="flex items-center gap-1.5 text-xs text-gray-500" title="AIで自動駒入れを行う実行時間（秒）。この時間内で残り駒0になるまで繰り返す（長いほど残り駒0に近づきやすいが時間がかかる）">
+            <span>実行時間(秒)</span>
             <input
               type="number"
               min={1}
-              max={200}
-              value={activeOption.maxAttempts}
-              onChange={e => onChangeMaxAttempts(Math.min(200, Math.max(1, Number(e.target.value) || 1)))}
+              max={180}
+              value={activeOption.maxSeconds}
+              onChange={e => onChangeMaxSeconds(Math.min(180, Math.max(1, Number(e.target.value) || 1)))}
               disabled={isRunning}
               className="w-16 px-2 py-1.5 rounded-lg border border-gray-200 bg-white text-gray-700 disabled:opacity-50"
             />

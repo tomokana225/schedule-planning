@@ -278,13 +278,13 @@ export const ConstraintsEditor: React.FC<Props> = ({
                     <span>曜日ごとに均等分散させる</span>
                   </label>
                   <label className="flex items-center gap-2">
-                    <span className="text-gray-600">試行回数：</span>
+                    <span className="text-gray-600">実行時間（秒）：</span>
                     <input
                       type="number"
                       min={1}
-                      max={200}
-                      value={opt.maxAttempts}
-                      onChange={e => updateOption(opt.id, { maxAttempts: Math.min(200, Math.max(1, Number(e.target.value) || 1)) })}
+                      max={180}
+                      value={opt.maxSeconds}
+                      onChange={e => updateOption(opt.id, { maxSeconds: Math.min(180, Math.max(1, Number(e.target.value) || 1)) })}
                       className="w-20 px-2 py-1 rounded border border-gray-200"
                     />
                   </label>
