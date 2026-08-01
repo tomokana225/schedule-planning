@@ -391,34 +391,67 @@ const repairRemainingOnce = (ctx: SchedulerContext, result: RunResult, deadline:
   return repaired;
 };
 
+const PERTURB_MIN = 2;
+const PERTURB_MAX = 5;
+
+// Every repair strategy above only ever tries to fix lessons that are ALREADY
+// unplaced. Once a schedule settles into a good-but-imperfect configuration, that
+// alone can't do any better — the still-unplaced lessons' candidate slots have
+// already been exhausted. This deliberately disturbs a handful of already-placed
+// (non-confirmed) komas — pulling a few random ones back out — and hands the
+// resulting (larger) unplaced set to the same direct-search + chain-repair machinery
+// as repairRemainingOnce, on the chance that re-placing them lands somewhere that
+// opens up a genuinely better overall arrangement than just leaving them exactly
+// where they were. The caller only keeps this result if it's a strict improvement,
+// same as every other strategy here, so a perturbation that doesn't pan out is free.
+const perturbAndRetry = (ctx: SchedulerContext, result: RunResult, deadline: number): RunResult => {
+  const movable = result.placements.filter(p => !p.confirmed);
+  if (movable.length === 0) return result;
+
+  const count = Math.min(movable.length, PERTURB_MIN + Math.floor(Math.random() * (PERTURB_MAX - PERTURB_MIN + 1)));
+  const toRemove = new Set(shuffle(movable).slice(0, count).map(p => p.id));
+
+  const combinedUnplaced = new Map<string, number>();
+  for (const u of result.unplaced) combinedUnplaced.set(u.lessonId, u.count);
+  for (const p of result.placements) {
+    if (toRemove.has(p.id)) combinedUnplaced.set(p.lessonId, (combinedUnplaced.get(p.lessonId) ?? 0) + 1);
+  }
+
+  const perturbed: RunResult = {
+    placements: result.placements.filter(p => !toRemove.has(p.id)),
+    unplaced: Array.from(combinedUnplaced.entries()).map(([lessonId, unplacedCount]) => ({ lessonId, count: unplacedCount })),
+  };
+
+  return repairRemainingOnce(ctx, perturbed, deadline);
+};
+
 const totalUnplaced = (r: RunResult): number => r.unplaced.reduce((s, u) => s + u.count, 0);
 
 // Drives the auto-assignment (駒入れ), keeping any already-confirmed placements fixed,
-// and keeps trying randomized attempts within the configured time budget (実行時間、秒),
-// keeping whichever leaves the fewest lessons unplaced and stopping early the moment
-// one reaches 0 残り駒. The configured seconds is the actual, sole cap for this phase —
-// increasing it in the UI directly increases how long attempts keep running. Yields the
-// current best every time it genuinely improves, so a caller (sync or async) can observe
-// progress as it happens; the final `return` value is always the true end result.
+// within the configured time budget (実行時間、秒), keeping whichever leaves the fewest
+// lessons unplaced and stopping early the moment one reaches 0 残り駒. The configured
+// seconds is the actual, sole cap for this phase — increasing it in the UI directly
+// increases how long the search keeps running. Yields the current best every time it
+// genuinely improves, so a caller (sync or async) can observe progress as it happens;
+// the final `return` value is always the true end result.
 //
-// Each round does one fresh full random attempt, then (if time remains) one repair pass
-// against whichever result is currently best — rather than a fixed split where a whole
-// half of the budget is committed to fresh attempts and the other half to repair. A rigid
-// split can waste large stretches of a long budget: if the residual unplaced lessons only
-// ever have multiple blocking placements at every candidate slot, repairRemainingOnce's
-// single-blocker heuristic can never succeed no matter how many rounds it gets, so a fixed
-// repair half is pure dead time that fresh attempts could have used instead (this showed up
-// as longer time budgets not improving results, while many short repeated runs did better —
-// each short run wasted only a small, proportional slice on unproductive repair instead of
-// a large fixed block of it). Interleaving keeps both phases perpetually earning their share
-// of the budget based on whether they're actually helping, for any dataset shape.
+// Every round tries three different moves against whichever result is currently best,
+// keeping each one only if it's a genuine improvement: a fresh, fully random from-scratch
+// reconstruction (this is what makes a new button press meaningfully different from just
+// continuing to fiddle with what's already there — pure random restarts remain one of the
+// best tools for escaping a bad structure entirely); repairing whichever lessons are
+// still unplaced via the chain search above; and perturbing a small random handful of
+// already-placed (non-confirmed) komas — pulling them back out and re-integrating them —
+// since repair alone only ever touches lessons that are ALREADY unplaced, and a schedule
+// can settle into a good-but-imperfect shape that only gets better once something that
+// already fit is deliberately disturbed and given a chance to land somewhere else.
 //
 // `best` is seeded with the schedule that's already on screen (existingPlacements), not
 // just its confirmed subset, so re-running can never silently hand back something worse:
-// a fresh attempt or repair pass only replaces it once it's a genuine improvement in 残り駒.
-// Without this, every click was a gamble — a worse random attempt could overwrite an
-// already-good (or already-complete) schedule, which is what made "just keep clicking a
-// short run and stop when it looks good" feel more reliable than one longer run.
+// every one of these three moves only replaces `best` once it's a genuine improvement in
+// 残り駒. Without this, every click was a gamble — a worse random attempt could overwrite
+// an already-good (or already-complete) schedule, which is what made "just keep clicking
+// a short run and stop when it looks good" feel more reliable than one longer run.
 function* runSchedulerSteps(ctx: SchedulerContext, existingPlacements: Placement[]): Generator<RunResult, RunResult, void> {
   const keepConfirmed = existingPlacements.filter(p => p.confirmed);
   const budgetMs = (ctx.options?.maxSeconds ?? 15) * 1000;
@@ -444,7 +477,7 @@ function* runSchedulerSteps(ctx: SchedulerContext, existingPlacements: Placement
     return false;
   };
 
-  do {
+  while (totalUnplaced(best) > 0 && now() - start < budgetMs) {
     const result = attempt(ctx, keepConfirmed);
     if (totalUnplaced(result) < totalUnplaced(best)) {
       best = result;
@@ -453,29 +486,38 @@ function* runSchedulerSteps(ctx: SchedulerContext, existingPlacements: Placement
     } else if (tick()) {
       yield best;
     }
-    if (totalUnplaced(best) === 0) return best;
+    if (totalUnplaced(best) === 0) break;
+    if (now() - start >= budgetMs) break;
 
-    if (now() - start < budgetMs) {
-      // Cap each repair call to a short slice of its own, regardless of how much of
-      // the overall budget remains: on heavily-contested data the depth-3 chain
-      // search can in principle explore a very large number of candidate chains for
-      // a single stubborn lesson, and without its own bound that single call could
-      // run for the entire remaining budget (or, before this bound existed, even
-      // past it) with no chance for the interleaved loop above to come back around
-      // and yield — which is exactly what made the countdown/preview freeze solid
-      // instead of ticking down smoothly on harder data.
-      const repairDeadline = Math.min(start + budgetMs, now() + REPAIR_SLICE_MS);
-      const repaired = repairRemainingOnce(ctx, best, repairDeadline);
-      if (totalUnplaced(repaired) < totalUnplaced(best)) {
-        best = repaired;
-        yield best;
-        lastTick = now();
-      } else if (tick()) {
-        yield best;
-      }
-      if (totalUnplaced(best) === 0) return best;
+    // Cap each repair/perturb call to a short slice of its own, regardless of how much
+    // of the overall budget remains: on heavily-contested data the depth-3 chain search
+    // can in principle explore a very large number of candidate chains for a single
+    // stubborn lesson, and without its own bound a single call could run for the entire
+    // remaining budget (or, before this bound existed, even past it) with no chance for
+    // this loop to come back around and yield — which is exactly what made the
+    // countdown/preview freeze solid instead of ticking down smoothly on harder data.
+    const repairDeadline = Math.min(start + budgetMs, now() + REPAIR_SLICE_MS);
+    const repaired = repairRemainingOnce(ctx, best, repairDeadline);
+    if (totalUnplaced(repaired) < totalUnplaced(best)) {
+      best = repaired;
+      yield best;
+      lastTick = now();
+    } else if (tick()) {
+      yield best;
     }
-  } while (now() - start < budgetMs);
+    if (totalUnplaced(best) === 0) break;
+    if (now() - start >= budgetMs) break;
+
+    const perturbDeadline = Math.min(start + budgetMs, now() + REPAIR_SLICE_MS);
+    const perturbed = perturbAndRetry(ctx, best, perturbDeadline);
+    if (totalUnplaced(perturbed) < totalUnplaced(best)) {
+      best = perturbed;
+      yield best;
+      lastTick = now();
+    } else if (tick()) {
+      yield best;
+    }
+  }
 
   return best;
 }
