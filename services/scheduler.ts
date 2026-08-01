@@ -228,8 +228,16 @@ const attempt = (ctx: SchedulerContext, keepConfirmed: Placement[]): RunResult =
   };
 };
 
+// 単純な1手の空き探し（未配置の授業→単一の邪魔な駒を1つ動かす）では解決できない
+// ケースが多い: 邪魔な駒を動かそうにも、その移動先自体がまた別の1つの駒に塞がれて
+// いる、という「玉突き」がしばしば起こる。これを深さ制限付きの再帰でたどれるように
+// したのが REPAIR_CHAIN_DEPTH で、単一障害物の連鎖を最大その段数までさかのぼって
+// 解決を試みる（各段はあくまで「邪魔な駒がちょうど1つ」の場合のみ扱う — 複数の駒が
+// 同時に重なっているマスは、正しい解決の組み合わせが爆発的に増えるため対象外のまま）。
+const REPAIR_CHAIN_DEPTH = 3;
+
 // 全試行の中で最良だった結果に残った未配置授業だけを対象に、直接の空きコマ探索と、
-// 1つだけ既存の駒をどかす簡易ローカルサーチで置き場所を探す。ランダム再試行を
+// 邪魔な駒を玉突きで動かす連鎖ローカルサーチで置き場所を探す。ランダム再試行を
 // 全体でやり直すのではなく、実際に残った少数の未配置だけに絞ることで、
 // 「残り駒0になるまで実行時間の設定に関わらず粘る」処理を、時間の設定自体を
 // 無意味にするほど重くせずに行える。
@@ -242,12 +250,45 @@ const repairRemainingOnce = (ctx: SchedulerContext, result: RunResult): RunResul
   const allSlots = Array.from({ length: settings.days.length }, (_, day) => day)
     .flatMap(day => Array.from({ length: periodsForDay(settings, day) }, (_, idx) => ({ day, period: idx + 1 })));
 
-  const tryRepairAt = (lesson: Lesson, day: number, period: number): boolean => {
+  const moveBlocker = (blockerId: string, day: number, period: number) => {
+    const idx = placements.findIndex(p => p.id === blockerId);
+    placements[idx] = { ...placements[idx], day, period };
+  };
+
+  // Tries to make (day, period) available for `lesson` (not yet placed there) by
+  // relocating the single blocking placement there, chaining through further
+  // single-blocker relocations (up to REPAIR_CHAIN_DEPTH hops) if the blocker's own
+  // candidate destinations are themselves each blocked by exactly one other placement.
+  //
+  // Every relocation is committed to `placements` for real immediately once its own
+  // destination is confirmed clear — never tracked in a side "exclude" list that
+  // accumulates across the whole chain. `isValidPlacement` is only ever asked to
+  // ignore the ONE blocker being relocated at that exact step, so every check still
+  // sees every OTHER placement's true current position. (An earlier version excluded
+  // every ancestor blocker for the rest of the chain, which let a later step believe
+  // an ancestor had already vacated a slot it was, in fact, still sitting in — placing
+  // something else right on top of it.) Because a call only ever mutates `placements`
+  // immediately before returning true, a `false` return is always fully side-effect-free,
+  // so no separate rollback bookkeeping is needed either.
+  //
+  // `originalDay`/`originalPeriod`/`originalSpan` identify the absolute top-level slot
+  // this whole chain exists to free up: no relocation anywhere in the chain may ever
+  // land there, since the caller is about to place `lesson`'s original target there
+  // itself once this returns true.
+  const clearSlotFor = (
+    lesson: Lesson, day: number, period: number, depth: number,
+    originalDay: number, originalPeriod: number, originalSpan: number,
+  ): boolean => {
+    if (depth > REPAIR_CHAIN_DEPTH) return false;
     const targetEnd = period + lesson.consecutive - 1;
     const blockers = placements.filter(p => {
       if (p.confirmed || p.day !== day) return false;
       const l = lessonById.get(p.lessonId);
-      if (!l) return false;
+      // A different placement of the very same lesson can never be a legitimate
+      // "blocker": it isn't a competing resource, it's the same recurring
+      // commitment appearing again, and treating it as relocatable risks stacking
+      // two of that lesson's own instances onto the same slot.
+      if (!l || l.id === lesson.id) return false;
       const otherEnd = p.period + l.consecutive - 1;
       if (period > otherEnd || p.period > targetEnd) return false; // no overlap
       return l.classIds.some(c => lesson.classIds.includes(c))
@@ -259,24 +300,34 @@ const repairRemainingOnce = (ctx: SchedulerContext, result: RunResult): RunResul
     const blockerLesson = lessonById.get(blocker.lessonId);
     if (!blockerLesson) return false;
 
-    // Crucial: confirm the target lesson would actually be valid at (day, period)
-    // once this one blocker is out of the way — the blocker being the sole
-    // *placement* conflict there does NOT mean the slot is otherwise open; it
-    // could still violate 禁制 (unavailable), a 会議, maxPerDay, etc. Without
-    // this check the repair would blindly place the lesson into a forbidden
-    // slot as long as exactly one other placement happened to be there too.
-    const excludeBlocker = new Set([blocker.id]);
-    if (!isValidPlacement(ctx, placements, lesson, day, period, excludeBlocker)) return false;
+    // Crucial: confirm `lesson` would actually be valid at (day, period) once this
+    // one blocker is out of the way — the blocker being the sole *placement*
+    // conflict there does NOT mean the slot is otherwise open; it could still
+    // violate 禁制 (unavailable), a 会議, maxPerDay, etc. Without this check the
+    // repair would blindly place into a forbidden slot as long as exactly one
+    // other placement happened to be there too.
+    if (!isValidPlacement(ctx, placements, lesson, day, period, new Set([blocker.id]))) return false;
 
-    const altSlot = shuffle(allSlots).find(s =>
-      !(s.day === day && s.period <= targetEnd && s.period + blockerLesson.consecutive - 1 >= period)
-      && isValidPlacement(ctx, placements, blockerLesson, s.day, s.period, excludeBlocker),
-    );
-    if (!altSlot) return false;
-    const idx = placements.findIndex(p => p.id === blocker.id);
-    placements[idx] = { ...blocker, day: altSlot.day, period: altSlot.period };
-    return true;
+    const overlapsOwnTarget = (s: { day: number; period: number }, span: number) =>
+      s.day === day && s.period <= targetEnd && s.period + span - 1 >= period;
+    const conflictsWithOriginal = (s: { day: number; period: number }, span: number) =>
+      s.day === originalDay && s.period <= originalPeriod + originalSpan - 1 && s.period + span - 1 >= originalPeriod;
+
+    for (const s of shuffle(allSlots)) {
+      if (overlapsOwnTarget(s, blockerLesson.consecutive) || conflictsWithOriginal(s, blockerLesson.consecutive)) continue;
+      const directlyValid = isValidPlacement(ctx, placements, blockerLesson, s.day, s.period, new Set([blocker.id]));
+      // If s isn't directly free, see whether *it* can be cleared the same way (one
+      // more link in the chain) before giving up on this candidate destination.
+      if (directlyValid || clearSlotFor(blockerLesson, s.day, s.period, depth + 1, originalDay, originalPeriod, originalSpan)) {
+        moveBlocker(blocker.id, s.day, s.period);
+        return true;
+      }
+    }
+    return false;
   };
+
+  const tryRepairAt = (lesson: Lesson, day: number, period: number): boolean =>
+    clearSlotFor(lesson, day, period, 1, day, period, lesson.consecutive);
 
   for (const { lessonId, count } of result.unplaced) {
     const lesson = lessonById.get(lessonId);
@@ -305,10 +356,26 @@ const repairRemainingOnce = (ctx: SchedulerContext, result: RunResult): RunResul
     if (remaining > 0) stillUnplaced.set(lessonId, remaining);
   }
 
-  return {
+  const repaired: RunResult = {
     placements,
     unplaced: Array.from(stillUnplaced.entries()).map(([lessonId, count]) => ({ lessonId, count })),
   };
+
+  // Safety net: the chain repair above is intricate enough that a residual bug in it
+  // could in principle produce an inconsistent schedule. Verify every placement is
+  // still genuinely valid against every other one — reusing isValidPlacement, the same
+  // function that governs placement everywhere else, rather than a second hand-written
+  // check that could just as easily be wrong in its own way — and if anything doesn't
+  // check out, fall back to the untouched input rather than ever hand back a result
+  // that violates a constraint.
+  for (const p of repaired.placements) {
+    const lesson = lessonById.get(p.lessonId);
+    if (!lesson || !isValidPlacement(ctx, repaired.placements, lesson, p.day, p.period, new Set([p.id]))) {
+      return result;
+    }
+  }
+
+  return repaired;
 };
 
 const now = () => (typeof performance !== 'undefined' ? performance.now() : Date.now());
