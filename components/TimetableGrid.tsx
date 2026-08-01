@@ -373,7 +373,7 @@ export const TimetableGrid: React.FC<Props> = ({
                                 e.preventDefault();
                                 setMenu({ x: e.clientX, y: e.clientY, placementId: placement.id });
                               }}
-                              draggable={!!placement && !placement.confirmed}
+                              draggable={!!placement && !placement.confirmed && !isRunning}
                               onDragStart={() => placement && setDragPayload({ kind: 'placement', id: placement.id })}
                               onDragEnd={() => setDragPayload(null)}
                               title={meeting ? `会議: ${meeting.name}` : canDrop ? 'ここに移動できます' : undefined}
@@ -425,7 +425,7 @@ export const TimetableGrid: React.FC<Props> = ({
               return Array.from({ length: remaining }, (_, i) => (
                 <div
                   key={`${lesson.id}-${i}`}
-                  draggable
+                  draggable={!isRunning}
                   onDragStart={() => setDragPayload({ kind: 'new', id: lesson.id })}
                   onDragEnd={() => setDragPayload(null)}
                   className={`relative px-2 py-1.5 rounded-md border text-xs cursor-move ${SUBJECT_COLOR_CLASSES[info.color]}`}
