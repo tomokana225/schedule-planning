@@ -1,37 +1,36 @@
-import { CalendarEvent } from "../types";
+import { ChatMessage } from '../types';
 
-// Note: We no longer import GoogleGenAI here because the logic has moved to the server (src/worker.ts).
-// This reduces bundle size and keeps secrets safe.
+export interface TimetableAIContext {
+  schoolName: string;
+  days: string[];
+  periodsPerDay: number;
+  classes: { name: string }[];
+  teachers: { name: string; unavailableCount: number }[];
+  subjects: { name: string }[];
+  unplaced: { subjectName: string; classNames: string; teacherNames: string; remaining: number }[];
+  totalLessons: number;
+  totalPlacements: number;
+}
 
 export const sendMessageToAI = async (
   message: string,
-  history: any[],
-  currentEvents: CalendarEvent[],
-  currentDate: Date
+  history: ChatMessage[],
+  context: TimetableAIContext,
 ) => {
-  try {
-    const response = await fetch('/api/chat', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        message,
-        history,
-        currentEvents,
-        currentDate: currentDate.toISOString(),
-      }),
-    });
+  const response = await fetch('/api/chat', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      message,
+      history: history.map(h => ({ role: h.role, text: h.text })),
+      context,
+    }),
+  });
 
-    if (!response.ok) {
-      const err = await response.json() as any;
-      throw new Error(err.error || 'Server error');
-    }
-
-    const data = await response.json();
-    return data; // Returns { text, functionCalls }
-  } catch (error) {
-    console.error("Failed to communicate with AI endpoint:", error);
-    throw error;
+  if (!response.ok) {
+    const err = await response.json().catch(() => ({})) as any;
+    throw new Error(err.error || 'Server error');
   }
+
+  return response.json() as Promise<{ text: string }>;
 };

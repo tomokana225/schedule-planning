@@ -1,188 +1,124 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { Send, Sparkles, X, Bot, User, CalendarPlus } from 'lucide-react';
-import { sendMessageToAI } from '../services/geminiService';
-import { CalendarEvent, ChatMessage } from '../types';
+import { X, Send, Sparkles } from 'lucide-react';
+import { ChatMessage, SchoolClass, Teacher, Subject, Lesson, Placement, TimetableSettings } from '../types';
 import { generateId } from '../utils';
+import { sendMessageToAI, TimetableAIContext } from '../services/geminiService';
+import { computeUnplaced } from './TimetableGrid';
 
-interface AIAssistantProps {
+interface Props {
   isOpen: boolean;
   onClose: () => void;
-  events: CalendarEvent[];
-  currentDate: Date;
-  onAddEvent: (event: CalendarEvent) => void;
+  settings: TimetableSettings;
+  classes: SchoolClass[];
+  teachers: Teacher[];
+  subjects: Subject[];
+  lessons: Lesson[];
+  placements: Placement[];
 }
 
-export const AIAssistant: React.FC<AIAssistantProps> = ({
-  isOpen,
-  onClose,
-  events,
-  currentDate,
-  onAddEvent,
+export const AIAssistant: React.FC<Props> = ({
+  isOpen, onClose, settings, classes, teachers, subjects, lessons, placements,
 }) => {
-  const [input, setInput] = useState('');
   const [messages, setMessages] = useState<ChatMessage[]>([
-    {
-      id: 'welcome',
-      role: 'model',
-      text: 'こんにちは！AIアシスタントのOptiPlanです。スケジュールの調整や、空き時間の有効活用についてお手伝いします。「今のスケジュールで1時間勉強できる時間は？」のように聞いてみてください。',
-    },
+    { id: generateId(), role: 'model', text: 'こんにちは。時間割の未配置授業や駒の調整について、何でも聞いてください。' },
   ]);
-  const [isLoading, setIsLoading] = useState(false);
-  const messagesEndRef = useRef<HTMLDivElement>(null);
-
-  const scrollToBottom = () => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  };
+  const [input, setInput] = useState('');
+  const [isThinking, setIsThinking] = useState(false);
+  const endRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    scrollToBottom();
-  }, [messages]);
+    endRef.current?.scrollIntoView({ behavior: 'smooth' });
+  }, [messages, isOpen]);
+
+  const buildContext = (): TimetableAIContext => {
+    const unplaced = computeUnplaced(lessons, placements);
+    return {
+      schoolName: settings.schoolName,
+      days: settings.days,
+      periodsPerDay: settings.periodsPerDay,
+      classes: classes.map(c => ({ name: c.name })),
+      teachers: teachers.map(t => ({ name: t.name, unavailableCount: t.unavailable.length })),
+      subjects: subjects.map(s => ({ name: s.name })),
+      unplaced: unplaced.map(({ lesson, remaining }) => ({
+        subjectName: subjects.find(s => s.id === lesson.subjectId)?.name ?? '?',
+        classNames: lesson.classIds.map(id => classes.find(c => c.id === id)?.name).join('・'),
+        teacherNames: lesson.teacherIds.map(id => teachers.find(t => t.id === id)?.name).join('・'),
+        remaining,
+      })),
+      totalLessons: lessons.reduce((s, l) => s + l.weeklyCount, 0),
+      totalPlacements: placements.length,
+    };
+  };
 
   const handleSend = async () => {
-    if (!input.trim()) return;
-
-    const userMsg: ChatMessage = {
-      id: generateId(),
-      role: 'user',
-      text: input,
-    };
-
-    setMessages((prev) => [...prev, userMsg]);
+    if (!input.trim() || isThinking) return;
+    const userMsg: ChatMessage = { id: generateId(), role: 'user', text: input.trim() };
+    const history = messages;
+    setMessages(prev => [...prev, userMsg]);
     setInput('');
-    setIsLoading(true);
-
+    setIsThinking(true);
     try {
-      // Send entire history context to the server-side API
-      const historyContext = messages.map(m => ({ role: m.role, text: m.text }));
-      
-      const response = await sendMessageToAI(userMsg.text, historyContext, events, currentDate);
-      
-      // Handle Function Calls (Tools) returned from server
-      const functionCalls = response.functionCalls;
-      let toolResponseText = "";
-
-      if (functionCalls && functionCalls.length > 0) {
-        for (const call of functionCalls) {
-          if (call.name === 'add_calendar_event') {
-            const args = call.args as any;
-            
-            const newEvent: CalendarEvent = {
-              id: generateId(),
-              title: args.title,
-              start: new Date(args.startIso),
-              end: new Date(args.endIso),
-              description: args.description || 'AI Suggested',
-              type: (args.type as any) || 'ai-suggested',
-              color: 'bg-amber-100 text-amber-700 border-amber-200', 
-            };
-
-            onAddEvent(newEvent);
-            toolResponseText = `\n\n✨ 予定「${newEvent.title}」を ${new Date(newEvent.start).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})} に追加しました。`;
-          }
-        }
-      }
-
-      const modelText = response.text || "承知いたしました。";
-      
-      setMessages((prev) => [
-        ...prev,
-        {
-          id: generateId(),
-          role: 'model',
-          text: modelText + toolResponseText,
-        },
-      ]);
-    } catch (error) {
-      console.error("AI Error:", error);
-      setMessages((prev) => [
-        ...prev,
-        {
-          id: generateId(),
-          role: 'model',
-          text: 'すみません、エラーが発生しました。接続を確認してください。',
-        },
-      ]);
+      const res = await sendMessageToAI(userMsg.text, history, buildContext());
+      setMessages(prev => [...prev, { id: generateId(), role: 'model', text: res.text || '(応答がありませんでした)' }]);
+    } catch (e: any) {
+      setMessages(prev => [...prev, { id: generateId(), role: 'model', text: `エラーが発生しました: ${e.message}` }]);
     } finally {
-      setIsLoading(false);
+      setIsThinking(false);
     }
   };
-
-  const handleKeyDown = (e: React.KeyboardEvent) => {
-    if (e.key === 'Enter' && !e.shiftKey) {
-      e.preventDefault();
-      handleSend();
-    }
-  };
-
-  if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-y-0 right-0 w-full sm:w-96 bg-white shadow-2xl border-l border-gray-200 transform transition-transform duration-300 z-50 flex flex-col">
-      {/* Header */}
-      <div className="p-4 border-b border-gray-200 flex items-center justify-between bg-gradient-to-r from-indigo-600 to-indigo-700 text-white">
-        <div className="flex items-center space-x-2">
-          <Sparkles className="w-5 h-5" />
-          <h2 className="font-semibold text-lg">AI Assistant</h2>
+    <div
+      className={`no-print fixed top-0 right-0 h-full w-full sm:w-96 bg-white border-l border-gray-200 shadow-2xl z-40 flex flex-col transition-transform duration-300 ${
+        isOpen ? 'translate-x-0' : 'translate-x-full'
+      }`}
+    >
+      <div className="h-16 flex items-center justify-between px-4 border-b border-gray-200 flex-shrink-0">
+        <div className="flex items-center gap-2">
+          <div className="p-1.5 bg-indigo-100 text-indigo-600 rounded-lg">
+            <Sparkles size={18} />
+          </div>
+          <h3 className="font-semibold text-gray-900">AI手直しアシスタント</h3>
         </div>
-        <button onClick={onClose} className="p-1 hover:bg-indigo-500 rounded-full transition">
-          <X className="w-5 h-5" />
+        <button onClick={onClose} className="p-1.5 text-gray-400 hover:text-gray-600 rounded-lg hover:bg-gray-100">
+          <X size={18} />
         </button>
       </div>
 
-      {/* Messages */}
-      <div className="flex-1 overflow-y-auto p-4 space-y-4 bg-gray-50">
-        {messages.map((msg) => (
-          <div
-            key={msg.id}
-            className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}
-          >
+      <div className="flex-1 overflow-y-auto p-4 space-y-3">
+        {messages.map(m => (
+          <div key={m.id} className={`flex ${m.role === 'user' ? 'justify-end' : 'justify-start'}`}>
             <div
-              className={`max-w-[85%] rounded-2xl p-3 shadow-sm text-sm leading-relaxed ${
-                msg.role === 'user'
-                  ? 'bg-indigo-600 text-white rounded-br-none'
-                  : 'bg-white text-gray-800 border border-gray-200 rounded-bl-none'
+              className={`max-w-[85%] px-3 py-2 rounded-2xl text-sm whitespace-pre-wrap ${
+                m.role === 'user' ? 'bg-indigo-600 text-white rounded-br-sm' : 'bg-gray-100 text-gray-800 rounded-bl-sm'
               }`}
             >
-              <div className="flex items-center space-x-2 mb-1 opacity-80 text-xs">
-                {msg.role === 'user' ? <User size={12} /> : <Bot size={12} />}
-                <span>{msg.role === 'user' ? 'あなた' : 'OptiPlan AI'}</span>
-              </div>
-              <div className="whitespace-pre-wrap">{msg.text}</div>
+              {m.text}
             </div>
           </div>
         ))}
-        {isLoading && (
+        {isThinking && (
           <div className="flex justify-start">
-            <div className="bg-white border border-gray-200 rounded-2xl rounded-bl-none p-3 shadow-sm flex items-center space-x-2">
-              <div className="w-2 h-2 bg-indigo-400 rounded-full animate-bounce" style={{ animationDelay: '0s' }}></div>
-              <div className="w-2 h-2 bg-indigo-400 rounded-full animate-bounce" style={{ animationDelay: '0.2s' }}></div>
-              <div className="w-2 h-2 bg-indigo-400 rounded-full animate-bounce" style={{ animationDelay: '0.4s' }}></div>
-            </div>
+            <div className="bg-gray-100 text-gray-400 px-3 py-2 rounded-2xl rounded-bl-sm text-sm">考え中...</div>
           </div>
         )}
-        <div ref={messagesEndRef} />
+        <div ref={endRef} />
       </div>
 
-      {/* Input */}
-      <div className="p-4 bg-white border-t border-gray-200">
-        <div className="relative">
-          <textarea
+      <div className="p-3 border-t border-gray-200 flex-shrink-0">
+        <div className="flex items-center gap-2 bg-gray-100 rounded-xl px-3 py-2">
+          <input
             value={input}
-            onChange={(e) => setInput(e.target.value)}
-            onKeyDown={handleKeyDown}
-            placeholder="「明日の午後に会議を入れたい」"
-            className="w-full pl-4 pr-12 py-3 bg-gray-100 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500 resize-none text-sm"
-            rows={2}
+            onChange={e => setInput(e.target.value)}
+            onKeyDown={e => e.key === 'Enter' && handleSend()}
+            placeholder="未配置の授業について相談する..."
+            className="flex-1 bg-transparent text-sm focus:outline-none"
           />
-          <button
-            onClick={handleSend}
-            disabled={!input.trim() || isLoading}
-            className="absolute right-2 top-2 p-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 disabled:bg-gray-300 disabled:cursor-not-allowed transition"
-          >
-            <Send className="w-4 h-4" />
+          <button onClick={handleSend} disabled={isThinking} className="text-indigo-600 disabled:text-gray-300">
+            <Send size={18} />
           </button>
         </div>
       </div>
     </div>
   );
-}
+};
