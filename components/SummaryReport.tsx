@@ -73,13 +73,13 @@ const UnitComparisonView: React.FC<{ data: ProjectData }> = ({ data }) => {
               </thead>
               <tbody className="divide-y divide-gray-100">
                 {g.subjectRows.map(row => (
-                  <tr key={row.subjectId} className={row.mismatched ? 'bg-red-50' : ''}>
+                  <tr key={row.subjectId} className={row.mismatched ? 'bg-yellow-50' : ''}>
                     <td className={`px-3 py-2 sticky left-0 bg-inherit font-medium ${SUBJECT_COLOR_CLASSES[row.color]?.split(' ')[1] ?? ''}`}>
                       {row.subjectName}
-                      {row.mismatched && <AlertTriangle size={12} className="inline-block ml-1 text-red-500" />}
+                      {row.mismatched && <AlertTriangle size={12} className="inline-block ml-1 text-yellow-600" />}
                     </td>
                     {g.classes.map(c => (
-                      <td key={c.id} className={`px-3 py-2 text-center ${row.mismatched ? 'text-red-600 font-semibold' : 'text-gray-700'}`}>
+                      <td key={c.id} className={`px-3 py-2 text-center ${row.mismatched ? 'text-yellow-700 font-semibold bg-yellow-100' : 'text-gray-700'}`}>
                         {row.byClass[c.id]}
                       </td>
                     ))}
@@ -106,7 +106,8 @@ export const SummaryReport: React.FC<Props> = ({ data }) => {
         <BarChart3 size={14} className="mt-0.5 flex-shrink-0" />
         現在配置されている週あたりのコマ数を、先生・クラス・科目ごとに集計します（年間実績集計プログラムの簡易版）。
         「本来のコマ数」（授業設定上の値）と一致していない場合は未配置の駒がある可能性があります。
-        「単位数比較」では、学年内のクラス間で各教科の単位数が揃っているかを確認できます。
+        「単位数比較」では、現在の時間割に実際に配置されている単位数を教科ごとに確認でき、
+        学年内の他のクラスと異なる教科は黄色で表示されます。
       </p>
 
       <div className="flex items-center justify-between mb-4 flex-wrap gap-2">

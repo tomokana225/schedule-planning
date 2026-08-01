@@ -91,7 +91,7 @@ export interface UnitComparisonSubjectRow {
   subjectId: string;
   subjectName: string;
   color: string;
-  byClass: Record<string, number>; // classId -> 単位数（週コマ数、授業設定ベース）
+  byClass: Record<string, number>; // classId -> 現在の時間割に配置されている単位数（週あたりのコマ数）
   mismatched: boolean;              // 同一学年内でこの科目の単位数が揃っていない
 }
 
@@ -101,11 +101,12 @@ export interface UnitComparisonGrade {
   subjectRows: UnitComparisonSubjectRow[];
 }
 
-// 各クラスごとに、各教科の単位数（週コマ数、授業設定上の weeklyCount 合計）を
+// 各クラスごとに、各教科の単位数（現在の時間割に実際に配置されているコマ数）を
 // 学年単位で並べ、同じ学年内のクラス間で単位数が揃っているかを確認できるようにする。
 // 展開授業などで同じクラス・科目に複数の授業が登録されている場合は合算する。
 export const computeUnitComparison = (data: ProjectData): UnitComparisonGrade[] => {
-  const { classes, subjects, lessons } = data;
+  const { classes, subjects, lessons, placements } = data;
+  const lessonById = new Map(lessons.map(l => [l.id, l]));
 
   const groups = new Map<string, typeof classes>();
   for (const c of classes) {
@@ -121,9 +122,10 @@ export const computeUnitComparison = (data: ProjectData): UnitComparisonGrade[] 
       .map(s => {
         const byClass: Record<string, number> = {};
         for (const c of classesInGrade) {
-          byClass[c.id] = lessons
-            .filter(l => l.subjectId === s.id && l.classIds.includes(c.id))
-            .reduce((sum, l) => sum + l.weeklyCount, 0);
+          byClass[c.id] = placements.filter(p => {
+            const l = lessonById.get(p.lessonId);
+            return l && l.subjectId === s.id && l.classIds.includes(c.id);
+          }).length;
         }
         const values = classesInGrade.map(c => byClass[c.id]);
         const mismatched = values.some(v => v !== values[0]);

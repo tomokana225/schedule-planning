@@ -6,11 +6,12 @@ import {
 } from '../types';
 import { AllClassesOverview } from './AllClassesOverview';
 import { AllClassesMatrix } from './AllClassesMatrix';
+import { AllTeachersMatrix } from './AllTeachersMatrix';
 import { periodsForDay, maxPeriodsAcrossDays } from '../utils';
 
 const NA = '__na__';
 
-export type TileTab = 'overview' | 'matrix' | 'teachers' | 'classes' | 'rooms' | 'subjects';
+export type TileTab = 'overview' | 'matrix' | 'teacherMatrix' | 'teachers' | 'classes' | 'rooms' | 'subjects';
 
 interface Props {
   settings: TimetableSettings;
@@ -34,6 +35,7 @@ interface Props {
 const TABS: { key: TileTab; label: string; icon: React.ReactNode }[] = [
   { key: 'overview', label: '全クラス一覧', icon: <Table2 size={16} /> },
   { key: 'matrix', label: '一括表', icon: <TableProperties size={16} /> },
+  { key: 'teacherMatrix', label: '先生一括表', icon: <TableProperties size={16} /> },
   { key: 'teachers', label: '先生', icon: <Users size={16} /> },
   { key: 'classes', label: 'クラス', icon: <GraduationCap size={16} /> },
   { key: 'rooms', label: '教室', icon: <DoorOpen size={16} /> },
@@ -121,6 +123,7 @@ export const TileView: React.FC<Props> = ({
       <p className="text-xs text-gray-500 mb-3">
         「全クラス一覧」ではすべてのクラス・学年の時間割を並べて確認できます。「一括表」では縦に学年・クラス、
         横に曜日・時限を並べた一つの表ですべてのコマを確認でき、空きコマがあればエラーとして一覧表示されます。
+        「先生一括表」では縦に先生、横に曜日・時限を並べた一つの表で全先生の時間割をまとめて確認できます。
         この画面を見ながら「AIで自動駒入れ」を実行すると、コマが埋まっていく様子をそのまま確認できます。
         先生・クラス・教室・科目タブでは、配置済みコマ数と週の埋まり具合を一覧できます。
         タイルをクリックすると詳細な時間割作成画面を開きます。
@@ -178,6 +181,13 @@ export const TileView: React.FC<Props> = ({
             lessons={lessons} placements={placements} setPlacements={setPlacements} meetings={meetings}
             activeOption={activeOption}
             onOpenClass={classId => onOpenEntity('class', classId)}
+          />
+        )}
+        {tab === 'teacherMatrix' && (
+          <AllTeachersMatrix
+            settings={settings} teachers={teachers} classes={classes} subjects={subjects}
+            lessons={lessons} placements={placements} meetings={meetings}
+            onOpenTeacher={teacherId => onOpenEntity('teacher', teacherId)}
           />
         )}
         {tab === 'teachers' && renderEntityTiles(teachers, (id, l) => l.teacherIds.includes(id), 'teacher')}
