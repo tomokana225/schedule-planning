@@ -14,11 +14,12 @@ export interface SchedulerContext {
   options?: SchedulerOptions;
   meetings?: Meeting[]; // 会議の簡単設定: 指定した曜日・時限・先生（・教室）を拘束する
   isBandMode?: boolean; // 帯時間割の作成中か（1本の連続した枠として扱い、1日あたりの上限は適用しない）
-  // 残り駒0に達した後も実行時間いっぱいまで探索を続け、違うパターンを見つけ次第
-  // 採用するか（true）、0に達した時点で即座に終えるか（false・既定）。対話的な
-  // 「AIで自動駒入れ」ボタンではライブプレビューと残り秒数表示があるため待たせても
-  // 問題ないが、帯時間割の自動作成のように進捗表示のない同期呼び出しでは、既定の
-  // 「0になったら即終了」を維持し、無用にブラウザを長時間フリーズさせない。
+  // 開始時点で既に残り駒0（＝再実行）の場合に、違うパターンを1つ見つけ次第採用するか
+  // （true）、何もせず即座に終えるか（false・既定）。true でも、指定秒数いっぱい
+  // 待たせるわけではなく、別パターンが見つかった時点・または時間切れの、いずれか早い
+  // 方で終了する。対話的な「AIで自動駒入れ」ボタンではライブプレビューと残り秒数表示
+  // があるため多少待たせても問題ないが、帯時間割の自動作成のように進捗表示のない
+  // 同期呼び出しでは既定のfalseのままにし、無用に待たせない。
   exploreAfterComplete?: boolean;
 }
 
@@ -454,11 +455,15 @@ const totalUnplaced = (r: RunResult): number => r.unplaced.reduce((s, u) => s + 
 // that only gets better once something that already fit is deliberately disturbed and
 // given a chance to land somewhere else.
 //
-// The search deliberately does NOT stop the moment 残り駒 first reaches 0: it keeps
-// running for the rest of the configured time, still trying all three moves, so that
-// 自動駒入れ succeeding once doesn't make running it again (or leaving the same run
-// going) pointless — the timetable keeps reshuffling between different fully-valid
-// arrangements until time runs out, ending on whichever one was found last.
+// The search stops as soon as it has something satisfying to show, rather than forcing
+// every run to always last the entire configured time — 実行時間(秒) is an upper bound,
+// not a target duration, so finishing early is success, not something to keep churning
+// past. The one exception: if this run started from an already-complete schedule (a
+// re-run after success) and the caller opted into `exploreAfterComplete`, the search
+// keeps trying until it finds ONE different, equally fully-valid arrangement (or time
+// runs out) — otherwise pressing "run again" on an already-complete timetable would do
+// nothing at all. As soon as that one alternative is found, it stops immediately; it
+// does not keep hunting for a third or fourth pattern.
 //
 // `best` is seeded with the schedule that's already on screen (existingPlacements), not
 // just its confirmed subset, so re-running can never silently hand back something worse:
@@ -491,32 +496,40 @@ function* runSchedulerSteps(ctx: SchedulerContext, existingPlacements: Placement
     return false;
   };
 
+  // Once this run has found ONE fresh, fully-valid (0 残り駒) arrangement that's
+  // different from whatever `best` started as, there's nothing more to gain from
+  // continuing — see `doneUnlessExploring` below.
+  let foundFreshComplete = false;
+
   // A candidate replaces `best` if it genuinely has fewer unplaced lessons — or, when
-  // ctx.exploreAfterComplete is set and a fully valid (0 残り駒) schedule has already
-  // been found, if the candidate is ALSO fully valid. There's no way to improve on 0 by
-  // this metric, but for callers that opt in, that doesn't mean the search should stop
-  // finding things to do: every fresh attempt or perturbation that also reaches 0 is a
-  // genuinely different valid arrangement, so it's accepted as a fresh pattern to show
-  // instead of being discarded just because it isn't "better" than the one already
-  // found. Callers that DON'T opt in (no live progress UI to make the extra wait
-  // worthwhile) get the original behavior: stop the moment 残り駒 first reaches 0.
+  // ctx.exploreAfterComplete is set, this run started from an already-complete schedule,
+  // and no fresh alternative has been found yet in THIS run, if the candidate is ALSO
+  // fully valid (0 残り駒). That covers the "run again after success" case: the only way
+  // to show something different is to accept another equally-valid arrangement, but only
+  // the first one — once one alternative has been shown there is no reason to keep
+  // discarding otherwise-fine results just to keep hunting for yet another.
   const acceptable = (candidate: RunResult, current: RunResult): boolean => {
     const candidateUnplaced = totalUnplaced(candidate);
     const currentUnplaced = totalUnplaced(current);
     if (candidateUnplaced < currentUnplaced) return true;
-    return !!ctx.exploreAfterComplete && candidateUnplaced === 0 && currentUnplaced === 0;
+    return !!ctx.exploreAfterComplete && !foundFreshComplete && candidateUnplaced === 0 && currentUnplaced === 0;
   };
 
-  // Once 残り駒 hits 0, callers that didn't opt into exploreAfterComplete are done —
-  // stop immediately instead of running pointless repair/perturb passes (there's
-  // nothing left to repair, and nothing to gain by perturbing when the result won't
-  // be kept anyway).
-  const doneUnlessExploring = () => !ctx.exploreAfterComplete && totalUnplaced(best) === 0;
+  // Stop the instant 残り駒 hits 0 — 実行時間(秒) is an upper bound, not a target
+  // duration, so finishing early is exactly what should happen. The only case where
+  // reaching 0 doesn't immediately mean "done" is a re-run that started already at 0
+  // with exploreAfterComplete set: then keep going until one fresh alternative has
+  // actually been found (foundFreshComplete), so "run again" isn't a no-op.
+  const doneUnlessExploring = () => {
+    if (totalUnplaced(best) > 0) return false;
+    return !ctx.exploreAfterComplete || foundFreshComplete;
+  };
 
   while ((ctx.exploreAfterComplete || totalUnplaced(best) > 0) && now() - start < budgetMs) {
     const result = attempt(ctx, keepConfirmed);
     if (acceptable(result, best)) {
       best = result;
+      if (totalUnplaced(best) === 0) foundFreshComplete = true;
       yield best;
       lastTick = now();
     } else if (tick()) {
@@ -535,6 +548,7 @@ function* runSchedulerSteps(ctx: SchedulerContext, existingPlacements: Placement
     const repaired = repairRemainingOnce(ctx, best, repairDeadline);
     if (acceptable(repaired, best)) {
       best = repaired;
+      if (totalUnplaced(best) === 0) foundFreshComplete = true;
       yield best;
       lastTick = now();
     } else if (tick()) {
@@ -546,6 +560,7 @@ function* runSchedulerSteps(ctx: SchedulerContext, existingPlacements: Placement
     const perturbed = perturbAndRetry(ctx, best, perturbDeadline);
     if (acceptable(perturbed, best)) {
       best = perturbed;
+      if (totalUnplaced(best) === 0) foundFreshComplete = true;
       yield best;
       lastTick = now();
     } else if (tick()) {
