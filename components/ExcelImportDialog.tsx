@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
-import { X, FileSpreadsheet, Upload, AlertTriangle, Loader2 } from 'lucide-react';
+import { X, FileSpreadsheet, Upload, AlertTriangle, Loader2, Download } from 'lucide-react';
 import { parseIdeaExcelWorkbook, ImportResult } from '../services/excelImportService';
+import { downloadIdeaExcelTemplate } from '../services/excelTemplateService';
 
 interface Props {
   isOpen: boolean;
@@ -62,6 +63,14 @@ export const ExcelImportDialog: React.FC<Props> = ({ isOpen, onClose, onApply })
           （.xlsx / .xlsm）を読み込みます。クラス・先生・科目・授業を自動生成します。
           現在のクラス・先生・科目・授業・配置済みの時間割は上書きされます（教室と個別条件はそのまま維持されます）。
         </p>
+
+        <button
+          onClick={() => downloadIdeaExcelTemplate()}
+          className="w-full mb-4 flex items-center justify-center gap-1.5 text-xs text-indigo-600 hover:text-indigo-700 hover:bg-indigo-50 border border-indigo-100 rounded-lg py-2 transition"
+        >
+          <Download size={14} />
+          このシート形式のひな形（.xlsx）をダウンロード
+        </button>
 
         <label className="flex flex-col items-center justify-center gap-2 border-2 border-dashed border-gray-200 rounded-xl py-8 cursor-pointer hover:border-indigo-300 hover:bg-indigo-50/30 transition">
           {isParsing ? <Loader2 size={22} className="text-indigo-500 animate-spin" /> : <Upload size={22} className="text-gray-400" />}
