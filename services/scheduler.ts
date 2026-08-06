@@ -434,6 +434,28 @@ const perturbAndRetry = (ctx: SchedulerContext, result: RunResult, deadline: num
 
 const totalUnplaced = (r: RunResult): number => r.unplaced.reduce((s, u) => s + u.count, 0);
 
+// A compact fingerprint of where every lesson landed, used only to tell whether a
+// re-run actually produced a different arrangement from the one already on screen
+// (as opposed to merely being ALSO fully valid, which every attempt on easy data
+// tends to be — without this check, "run again" could silently accept the exact
+// same layout and look like a no-op). Must collect ALL slots per lesson, not just
+// one: a lesson with weeklyCount > 1 has several placements sharing the same
+// lessonId (e.g. 4 separate weekly occurrences), and keying a Map by lessonId
+// alone would silently keep only the last one seen, making the signature blind to
+// changes in every other occurrence of that lesson.
+const placementSignature = (placements: Placement[]): string => {
+  const byLesson = new Map<string, string[]>();
+  for (const p of placements) {
+    const slots = byLesson.get(p.lessonId) ?? [];
+    slots.push(`${p.day}-${p.period}`);
+    byLesson.set(p.lessonId, slots);
+  }
+  return [...byLesson.entries()]
+    .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
+    .map(([lessonId, slots]) => `${lessonId}:${slots.sort().join(',')}`)
+    .join('|');
+};
+
 // Drives the auto-assignment (駒入れ), keeping any already-confirmed placements fixed,
 // within the configured time budget (実行時間、秒), keeping whichever leaves the fewest
 // lessons unplaced. The configured seconds is the actual, sole cap for this phase —
@@ -478,6 +500,7 @@ function* runSchedulerSteps(ctx: SchedulerContext, existingPlacements: Placement
 
   let best: RunResult = { placements: existingPlacements, unplaced: summarizeUnplaced(ctx.lessons, existingPlacements) };
   if (ctx.lessons.length === 0) return best; // nothing to place, nothing to explore
+  const initialSignature = placementSignature(existingPlacements);
 
   // Yielding only on genuine improvement isn't enough on its own: long stretches
   // where nothing improves (common once the search is close to its limit) would
@@ -497,22 +520,26 @@ function* runSchedulerSteps(ctx: SchedulerContext, existingPlacements: Placement
   };
 
   // Once this run has found ONE fresh, fully-valid (0 残り駒) arrangement that's
-  // different from whatever `best` started as, there's nothing more to gain from
-  // continuing — see `doneUnlessExploring` below.
+  // genuinely different from whatever `best` started this run as (checked by
+  // `placementSignature`, not just by unplaced-count), there's nothing more to gain
+  // from continuing — see `doneUnlessExploring` below.
   let foundFreshComplete = false;
 
   // A candidate replaces `best` if it genuinely has fewer unplaced lessons — or, when
   // ctx.exploreAfterComplete is set, this run started from an already-complete schedule,
-  // and no fresh alternative has been found yet in THIS run, if the candidate is ALSO
-  // fully valid (0 残り駒). That covers the "run again after success" case: the only way
-  // to show something different is to accept another equally-valid arrangement, but only
-  // the first one — once one alternative has been shown there is no reason to keep
-  // discarding otherwise-fine results just to keep hunting for yet another.
+  // no fresh alternative has been found yet in THIS run, the candidate is ALSO fully
+  // valid (0 残り駒), AND it actually differs from the schedule this run started with.
+  // That last check matters: on data with little contention, a fresh random attempt
+  // very often reconstructs the exact same arrangement, so accepting ANY fully-valid
+  // candidate here (as an earlier version did) could silently "succeed" at finding a
+  // pattern that's identical to the one already on screen — which looks to the user
+  // like pressing the button again did nothing at all.
   const acceptable = (candidate: RunResult, current: RunResult): boolean => {
     const candidateUnplaced = totalUnplaced(candidate);
     const currentUnplaced = totalUnplaced(current);
     if (candidateUnplaced < currentUnplaced) return true;
-    return !!ctx.exploreAfterComplete && !foundFreshComplete && candidateUnplaced === 0 && currentUnplaced === 0;
+    if (!ctx.exploreAfterComplete || foundFreshComplete || candidateUnplaced !== 0 || currentUnplaced !== 0) return false;
+    return placementSignature(candidate.placements) !== initialSignature;
   };
 
   // Stop the instant 残り駒 hits 0 — 実行時間(秒) is an upper bound, not a target
